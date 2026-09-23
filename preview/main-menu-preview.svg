@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 480 320" role="img" aria-labelledby="title description">
+  <title id="title">ES3C40P boot menu</title>
+  <desc id="description">Landscape touchscreen menu with Current Weather and SD Image Viewer buttons.</desc>
+  <rect width="480" height="320" fill="#000000"/>
+  <text x="18" y="45" fill="#00ffff" font-family="sans-serif" font-size="28" font-weight="bold">ES3C40P</text>
+  <text x="18" y="67" fill="#ffffff" font-family="sans-serif" font-size="16" font-weight="bold">HOME</text>
+  <rect x="18" y="78" width="444" height="2" fill="#5a5a5a"/>
+  <rect x="32" y="106" width="416" height="66" fill="#006666" stroke="#00ffff" stroke-width="1"/>
+  <text x="54" y="147" fill="#ffffff" font-family="sans-serif" font-size="25" font-weight="bold">CURRENT WEATHER</text>
+  <rect x="32" y="194" width="416" height="66" fill="#006b2f" stroke="#00ff80" stroke-width="1"/>
+  <text x="54" y="235" fill="#ffffff" font-family="sans-serif" font-size="25" font-weight="bold">SD IMAGE VIEWER</text>
+  <text x="18" y="298" fill="#c8c8c8" font-family="sans-serif" font-size="16">SD card ready</text>
+</svg>
