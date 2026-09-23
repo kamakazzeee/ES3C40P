@@ -39,8 +39,11 @@ uint8_t imageIndex = 0;
 constexpr uint8_t maximumImages = 24;
 String imagePaths[maximumImages];
 uint8_t imageCount = 0;
+constexpr uint8_t networksPerPage = 4;
+int networkCount = -1;
+uint8_t networkPage = 0;
 
-enum class Screen { Menu, Weather, Images };
+enum class Screen { Menu, Weather, Images, Scanner };
 Screen activeScreen = Screen::Menu;
 
 struct WeatherData {
@@ -137,19 +140,74 @@ void drawMenuWifiStatus() {
 
 void drawMenu() {
   drawHeader("HOME");
-  display.fillRect(32, 94, 416, 66, TFT_DARKCYAN);
-  display.drawRect(32, 94, 416, 66, TFT_CYAN);
+  display.fillRect(32, 88, 416, 42, TFT_DARKCYAN);
+  display.drawRect(32, 88, 416, 42, TFT_CYAN);
   display.setTextColor(TFT_WHITE, TFT_DARKCYAN);
-  display.drawString("CURRENT WEATHER", 54, 110, 4);
+  display.drawString("CURRENT WEATHER", 54, 99, 2);
 
-  display.fillRect(32, 170, 416, 66, TFT_DARKGREEN);
-  display.drawRect(32, 170, 416, 66, TFT_GREEN);
+  display.fillRect(32, 140, 416, 42, TFT_DARKGREEN);
+  display.drawRect(32, 140, 416, 42, TFT_GREEN);
   display.setTextColor(TFT_WHITE, TFT_DARKGREEN);
-  display.drawString("SD IMAGE VIEWER", 54, 186, 4);
+  display.drawString("SD IMAGE VIEWER", 54, 151, 2);
+
+  display.fillRect(32, 192, 416, 42, TFT_DARKGREY);
+  display.drawRect(32, 192, 416, 42, TFT_LIGHTGREY);
+  display.setTextColor(TFT_WHITE, TFT_DARKGREY);
+  display.drawString("WI-FI SIGNAL SCANNER", 54, 203, 2);
 
   display.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  display.drawString(sdAvailable ? "SD card ready" : "No SD card detected", 18, 254, 2);
+  display.drawString(sdAvailable ? "SD card ready" : "No SD card detected", 18, 244, 2);
   drawMenuWifiStatus();
+}
+
+void scanNetworks() {
+  display.fillRect(0, 82, 480, 182, TFT_BLACK);
+  display.setTextColor(TFT_WHITE, TFT_BLACK);
+  display.drawCentreString("Scanning networks...", 240, 145, 2);
+  networkCount = WiFi.scanNetworks(false, true);
+  networkPage = 0;
+  Serial.printf("Wi-Fi scan found %d networks\n", networkCount);
+}
+
+void drawScannerButton(const char *label, uint16_t left, uint16_t width, bool enabled) {
+  uint16_t background = enabled ? TFT_DARKCYAN : TFT_DARKGREY;
+  uint16_t foreground = enabled ? TFT_WHITE : TFT_LIGHTGREY;
+  display.fillRect(left, 218, width, 32, background);
+  display.drawRect(left, 218, width, 32, enabled ? TFT_CYAN : TFT_LIGHTGREY);
+  display.setTextColor(foreground, background);
+  display.drawCentreString(label, left + width / 2, 227, 2);
+}
+
+void drawScanner() {
+  drawHeader("WI-FI SIGNAL SCANNER");
+  if (networkCount <= 0) {
+    display.setTextColor(TFT_ORANGE, TFT_BLACK);
+    display.drawCentreString(networkCount == 0 ? "NO NETWORKS FOUND" : "SCAN FAILED", 240, 142, 2);
+  } else {
+    uint16_t firstNetwork = networkPage * networksPerPage;
+    uint16_t lastNetwork = min<uint16_t>(firstNetwork + networksPerPage, networkCount);
+    for (uint16_t index = firstNetwork; index < lastNetwork; ++index) {
+      String ssid = WiFi.SSID(index);
+      if (ssid.isEmpty()) ssid = "<hidden network>";
+      if (ssid.length() > 28) ssid = ssid.substring(0, 25) + "...";
+      uint16_t rowY = 92 + (index - firstNetwork) * 29;
+      display.setTextColor(TFT_WHITE, TFT_BLACK);
+      display.drawString(ssid, 20, rowY, 2);
+      int32_t rssi = WiFi.RSSI(index);
+      display.setTextColor(rssi >= -67 ? TFT_GREEN : rssi >= -80 ? TFT_YELLOW : TFT_ORANGE, TFT_BLACK);
+      display.drawRightString(String(rssi) + " dBm", 460, rowY, 2);
+    }
+    display.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    display.drawCentreString("Page " + String(networkPage + 1) + " of " +
+                                 String((networkCount + networksPerPage - 1) / networksPerPage),
+                             240, 198, 2);
+  }
+
+  uint8_t pageCount = networkCount > 0 ? (networkCount + networksPerPage - 1) / networksPerPage : 1;
+  drawScannerButton("PREV", 18, 120, networkPage > 0);
+  drawScannerButton("RESCAN", 150, 180, true);
+  drawScannerButton("NEXT", 342, 120, networkPage + 1 < pageCount);
+  drawBackButton();
 }
 
 void drawWeather() {
@@ -329,6 +387,12 @@ void showImages() {
   drawImageViewer();
 }
 
+void showScanner() {
+  activeScreen = Screen::Scanner;
+  scanNetworks();
+  drawScanner();
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -374,11 +438,24 @@ void loop() {
     uint16_t screenX = 479 - (touchY > 479 ? 479 : touchY);
     uint16_t screenY = 319 - (touchX > 319 ? 319 : touchX);
     Serial.printf("Touch raw: x=%u y=%u, screen: x=%u y=%u\n", touchX, touchY, screenX, screenY);
-    if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 94, 416, 66)) {
+    if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 88, 416, 42)) {
       showWeather();
-    } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 170, 416, 66)) {
+    } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 140, 416, 42)) {
       showImages();
+    } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 192, 416, 42)) {
+      showScanner();
+    } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 342, 218, 120, 32) && networkPage > 0) {
+      --networkPage;
+      drawScanner();
+    } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 150, 218, 180, 32)) {
+      scanNetworks();
+      drawScanner();
+    } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 18, 218, 120, 32) &&
+               networkCount > 0 && (networkPage + 1) * networksPerPage < networkCount) {
+      ++networkPage;
+      drawScanner();
     } else if (activeScreen != Screen::Menu && tapped(screenX, screenY, 0, 252, 480, 68)) {
+      if (activeScreen == Screen::Scanner) WiFi.scanDelete();
       showMenu();
     }
   }
