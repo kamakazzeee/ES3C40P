@@ -18,6 +18,7 @@ constexpr uint8_t touchInterruptPin = 17;
 constexpr uint8_t backlightPin = 45;
 constexpr uint8_t rgbLedPin = 42;
 constexpr uint8_t bootButtonPin = 0;
+constexpr uint8_t batteryAdcPin = 9;
 constexpr int sdClockPin = 38;
 constexpr int sdCommandPin = 40;
 constexpr int sdData0Pin = 39;
@@ -35,6 +36,7 @@ bool sdAvailable = false;
 unsigned long imageShownAt = 0;
 unsigned long lastMenuStatusDraw = 0;
 String displayedWifiStatus;
+String displayedBatteryStatus;
 uint8_t imageIndex = 0;
 constexpr uint8_t maximumImages = 24;
 String imagePaths[maximumImages];
@@ -104,11 +106,14 @@ const char *weatherDescription(int code) {
   return "Thunderstorm";
 }
 
+void drawBatteryStatus();
+
 void drawHeader(const char *title) {
   display.fillScreen(TFT_BLACK);
   display.setTextDatum(TL_DATUM);
   display.setTextColor(TFT_CYAN, TFT_BLACK);
   display.drawString("ES3C40P", 18, 16, 4);
+  drawBatteryStatus();
   display.setTextColor(TFT_WHITE, TFT_BLACK);
   display.drawString(title, 18, 52, 2);
   display.drawFastHLine(18, 78, 444, TFT_DARKGREY);
@@ -124,8 +129,16 @@ String wifiStatusText() {
   return "Wi-Fi: Disconnected";
 }
 
-void drawMenuWifiStatus() {
-  String status = wifiStatusText();
+void drawMenuStatusBar() {
+  String fullWifiStatus = wifiStatusText();
+  String wifiStatus = fullWifiStatus;
+  String sdStatus = sdAvailable ? "SD card ready" : "No SD card detected";
+  int16_t sdLeft = 460 - display.textWidth(sdStatus, 2);
+  int16_t maximumWifiWidth = sdLeft - 18 - 12;
+  while (wifiStatus.length() > 3 && display.textWidth(wifiStatus + "...", 2) > maximumWifiWidth) {
+    wifiStatus.remove(wifiStatus.length() - 1);
+  }
+  if (wifiStatus != fullWifiStatus) wifiStatus += "...";
   display.fillRect(18, 274, 444, 30, TFT_BLACK);
   if (WiFi.status() == WL_CONNECTED) {
     display.setTextColor(TFT_GREEN, TFT_BLACK);
@@ -134,8 +147,46 @@ void drawMenuWifiStatus() {
   } else {
     display.setTextColor(TFT_RED, TFT_BLACK);
   }
-  display.drawString(status, 18, 282, 2);
-  displayedWifiStatus = status;
+  display.drawString(wifiStatus, 18, 282, 2);
+  display.setTextColor(TFT_YELLOW, TFT_BLACK);
+  display.drawRightString(sdStatus, 460, 282, 2);
+  displayedWifiStatus = fullWifiStatus;
+}
+
+float batteryVoltage() {
+  uint32_t totalMillivolts = 0;
+  constexpr uint8_t sampleCount = 16;
+  for (uint8_t sample = 0; sample < sampleCount; ++sample) {
+    totalMillivolts += analogReadMilliVolts(batteryAdcPin);
+  }
+  return (totalMillivolts / static_cast<float>(sampleCount)) * 2.0f / 1000.0f;
+}
+
+uint8_t batteryPercent(float voltage) {
+  if (voltage <= 3.30f) return 0;
+  if (voltage >= 4.20f) return 100;
+  if (voltage < 3.50f) return 10;
+  if (voltage < 3.60f) return 25;
+  if (voltage < 3.70f) return 45;
+  if (voltage < 3.80f) return 65;
+  if (voltage < 3.90f) return 80;
+  if (voltage < 4.00f) return 90;
+  if (voltage < 4.10f) return 95;
+  return 98;
+}
+
+String batteryStatusText() {
+  float voltage = batteryVoltage();
+  uint8_t percent = batteryPercent(voltage);
+  return String(percent) + "% " + String(voltage, 2) + "V";
+}
+
+void drawBatteryStatus() {
+  String status = batteryStatusText();
+  display.fillRect(322, 10, 140, 24, TFT_BLACK);
+  display.setTextColor(TFT_YELLOW, TFT_BLACK);
+  display.drawRightString(status, 460, 18, 2);
+  displayedBatteryStatus = status;
 }
 
 void drawMenu() {
@@ -155,9 +206,7 @@ void drawMenu() {
   display.setTextColor(TFT_WHITE, TFT_DARKGREY);
   display.drawString("WI-FI SIGNAL SCANNER", 54, 203, 2);
 
-  display.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  display.drawString(sdAvailable ? "SD card ready" : "No SD card detected", 18, 244, 2);
-  drawMenuWifiStatus();
+  drawMenuStatusBar();
 }
 
 void scanNetworks() {
@@ -197,8 +246,7 @@ void drawScanner() {
       display.setTextColor(rssi >= -67 ? TFT_GREEN : rssi >= -80 ? TFT_YELLOW : TFT_ORANGE, TFT_BLACK);
       display.drawRightString(String(rssi) + " dBm", 460, rowY, 2);
     }
-    display.setTextColor(TFT_LIGHTGREY, TFT_B
-      LACK);
+    display.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
     display.drawCentreString("Page " + String(networkPage + 1) + " of " +
                                  String((networkCount + networksPerPage - 1) / networksPerPage),
                              240, 198, 2);
@@ -402,6 +450,7 @@ void setup() {
   pinMode(backlightPin, OUTPUT);
   digitalWrite(backlightPin, HIGH);
   pinMode(bootButtonPin, INPUT_PULLUP);
+  analogSetPinAttenuation(batteryAdcPin, ADC_11db);
 
   rgbLed.begin();
   rgbLed.setBrightness(32);
@@ -464,7 +513,8 @@ void loop() {
 
   if (activeScreen == Screen::Menu && millis() - lastMenuStatusDraw >= menuStatusIntervalMs) {
     lastMenuStatusDraw = millis();
-    if (wifiStatusText() != displayedWifiStatus) drawMenuWifiStatus();
+    if (batteryStatusText() != displayedBatteryStatus) drawBatteryStatus();
+    if (wifiStatusText() != displayedWifiStatus) drawMenuStatusBar();
   }
 
   if (activeScreen == Screen::Images && imageCount > 0 && millis() - imageShownAt >= imageIntervalMs) {
