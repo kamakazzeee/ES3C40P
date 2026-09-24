@@ -8,6 +8,8 @@
 #include <Wire.h>
 #include <TFT_eSPI.h>
 #include <Adafruit_NeoPixel.h>
+#include <Adafruit_BME280.h>
+#include <Adafruit_BMP280.h>
 #include "wifi_secrets.h"
 
 constexpr uint8_t touchAddress = 0x38;
@@ -31,8 +33,15 @@ constexpr char weatherUrl[] = "https://api.open-meteo.com/v1/forecast?latitude=4
 
 TFT_eSPI display;
 Adafruit_NeoPixel rgbLed(1, rgbLedPin, NEO_GRB + NEO_KHZ800);
+Adafruit_BME280 bme280;
+Adafruit_BMP280 bmp280;
 bool lastTouch = false;
 bool sdAvailable = false;
+bool sensorAvailable = false;
+bool sensorHasHumidity = false;
+bool sensorReadingValid = false;
+uint8_t sensorAddress = 0;
+String sensorModel;
 unsigned long imageShownAt = 0;
 unsigned long lastMenuStatusDraw = 0;
 String displayedWifiStatus;
@@ -45,8 +54,14 @@ constexpr uint8_t networksPerPage = 4;
 int networkCount = -1;
 uint8_t networkPage = 0;
 
-enum class Screen { Menu, Weather, Images, Scanner };
+enum class Screen { Menu, Weather, Images, Scanner, Sensor };
 Screen activeScreen = Screen::Menu;
+
+struct SensorData {
+  float temperature = 0;
+  float pressure = 0;
+  float humidity = 0;
+} sensorData;
 
 struct WeatherData {
   bool available = false;
@@ -189,22 +204,51 @@ void drawBatteryStatus() {
   displayedBatteryStatus = status;
 }
 
+void updateSensorData() {
+  if (sensorHasHumidity) {
+    sensorData.temperature = bme280.readTemperature();
+    sensorData.pressure = bme280.readPressure() / 100.0f;
+    sensorData.humidity = bme280.readHumidity();
+  } else if (sensorAvailable) {
+    sensorData.temperature = bmp280.readTemperature();
+    sensorData.pressure = bmp280.readPressure() / 100.0f;
+  }
+  sensorReadingValid = sensorAvailable && !isnan(sensorData.temperature) && !isnan(sensorData.pressure);
+}
+
+void drawMenuTemperatureStatus() {
+  display.fillRect(142, 10, 160, 24, TFT_BLACK);
+  display.setTextColor(TFT_ORANGE, TFT_BLACK);
+  if (sensorReadingValid) {
+    float temperatureFahrenheit = sensorData.temperature * 9.0f / 5.0f + 32.0f;
+    display.drawCentreString("Temp: " + String(temperatureFahrenheit, 1) + " F", 222, 18, 2);
+  } else {
+    display.drawCentreString("Temp: -- F", 222, 18, 2);
+  }
+}
+
 void drawMenu() {
   drawHeader("HOME");
-  display.fillRect(32, 88, 416, 42, TFT_DARKCYAN);
-  display.drawRect(32, 88, 416, 42, TFT_CYAN);
+  drawMenuTemperatureStatus();
+  display.fillRect(32, 84, 416, 40, TFT_DARKCYAN);
+  display.drawRect(32, 84, 416, 40, TFT_CYAN);
   display.setTextColor(TFT_WHITE, TFT_DARKCYAN);
-  display.drawString("CURRENT WEATHER", 54, 99, 2);
+  display.drawString("CURRENT WEATHER", 54, 95, 2);
 
-  display.fillRect(32, 140, 416, 42, TFT_DARKGREEN);
-  display.drawRect(32, 140, 416, 42, TFT_GREEN);
+  display.fillRect(32, 128, 416, 40, TFT_DARKGREEN);
+  display.drawRect(32, 128, 416, 40, TFT_GREEN);
   display.setTextColor(TFT_WHITE, TFT_DARKGREEN);
-  display.drawString("SD IMAGE VIEWER", 54, 151, 2);
+  display.drawString("SD IMAGE VIEWER", 54, 139, 2);
 
-  display.fillRect(32, 192, 416, 42, TFT_DARKGREY);
-  display.drawRect(32, 192, 416, 42, TFT_LIGHTGREY);
+  display.fillRect(32, 172, 416, 40, TFT_DARKGREY);
+  display.drawRect(32, 172, 416, 40, TFT_LIGHTGREY);
   display.setTextColor(TFT_WHITE, TFT_DARKGREY);
-  display.drawString("WI-FI SIGNAL SCANNER", 54, 203, 2);
+  display.drawString("WI-FI SIGNAL SCANNER", 54, 183, 2);
+
+  display.fillRect(32, 216, 416, 40, TFT_DARKCYAN);
+  display.drawRect(32, 216, 416, 40, TFT_CYAN);
+  display.setTextColor(TFT_WHITE, TFT_DARKCYAN);
+  display.drawString("ENVIRONMENT SENSOR", 54, 227, 2);
 
   drawMenuStatusBar();
 }
@@ -273,6 +317,38 @@ void drawWeather() {
     display.drawCentreString(weatherDescription(weather.weatherCode), 240, 178, 4);
     display.drawCentreString("Humidity " + String(weather.humidity) + "%", 240, 220, 2);
     display.drawCentreString("Wind " + String(weather.windSpeed, 1) + " mph", 240, 244, 2);
+  }
+  drawBackButton();
+}
+
+void drawSensor() {
+  drawHeader("ENVIRONMENT SENSOR");
+  if (!sensorAvailable) {
+    display.setTextColor(TFT_ORANGE, TFT_BLACK);
+    display.drawCentreString("SENSOR NOT DETECTED", 240, 145, 4);
+    display.setTextColor(TFT_WHITE, TFT_BLACK);
+    display.drawCentreString("Check the I2C connection", 240, 188, 2);
+  } else if (!sensorReadingValid) {
+    display.setTextColor(TFT_ORANGE, TFT_BLACK);
+    display.drawCentreString("SENSOR READ FAILED", 240, 145, 4);
+    display.setTextColor(TFT_WHITE, TFT_BLACK);
+    display.drawCentreString(sensorModel + " connected at 0x" + String(sensorAddress, HEX), 240, 188, 2);
+  } else {
+    display.setTextColor(TFT_GREEN, TFT_BLACK);
+    display.drawCentreString(sensorModel + " 0x" + String(sensorAddress, HEX), 240, 92, 2);
+    display.setTextColor(TFT_YELLOW, TFT_BLACK);
+    float temperatureFahrenheit = sensorData.temperature * 9.0f / 5.0f + 32.0f;
+    display.drawString("Temperature: " + String(sensorData.temperature, 2) + " C / " +
+                 String(temperatureFahrenheit, 2) + " F",
+               28, 130, 4);
+    display.setTextColor(TFT_WHITE, TFT_BLACK);
+    display.drawString("Pressure: " + String(sensorData.pressure, 2) + " hPa", 28, 180, 4);
+    if (sensorHasHumidity) {
+      display.drawString("Humidity: " + String(sensorData.humidity, 2) + "%", 28, 230, 4);
+    } else {
+      display.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+      display.drawString("Humidity: unavailable on BMP280", 28, 230, 2);
+    }
   }
   drawBackButton();
 }
@@ -442,6 +518,46 @@ void showScanner() {
   drawScanner();
 }
 
+void showSensor() {
+  activeScreen = Screen::Sensor;
+  updateSensorData();
+  Serial.printf("Sensor %s at 0x%02X: temperature=%.2f C, pressure=%.2f hPa\n",
+                sensorModel.c_str(), sensorAddress, sensorData.temperature, sensorData.pressure);
+  drawSensor();
+}
+
+void initializeSensor() {
+  if (bme280.begin(0x76, &Wire)) {
+    sensorAvailable = true;
+    sensorHasHumidity = true;
+    sensorAddress = 0x76;
+    sensorModel = "BME280";
+  } else if (bme280.begin(0x77, &Wire)) {
+    sensorAvailable = true;
+    sensorHasHumidity = true;
+    sensorAddress = 0x77;
+    sensorModel = "BME280";
+  }
+  if (sensorAvailable) {
+    Serial.printf("%s sensor detected at 0x%02X\n", sensorModel.c_str(), sensorAddress);
+    return;
+  }
+  if (bmp280.begin(0x76)) {
+    sensorAvailable = true;
+    sensorAddress = 0x76;
+    sensorModel = "BMP280";
+  } else if (bmp280.begin(0x77)) {
+    sensorAvailable = true;
+    sensorAddress = 0x77;
+    sensorModel = "BMP280";
+  }
+  if (sensorAvailable) {
+    Serial.printf("%s sensor detected at 0x%02X\n", sensorModel.c_str(), sensorAddress);
+  } else {
+    Serial.println("No BME280 or BMP280 sensor detected");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -464,6 +580,8 @@ void setup() {
 
   Wire.begin(touchSdaPin, touchSclPin);
   Wire.setClock(100000);
+  initializeSensor();
+  updateSensorData();
   display.init();
   display.setRotation(1);
   TJpgDec.setCallback(tftOutput);
@@ -488,12 +606,14 @@ void loop() {
     uint16_t screenX = 479 - (touchY > 479 ? 479 : touchY);
     uint16_t screenY = 319 - (touchX > 319 ? 319 : touchX);
     Serial.printf("Touch raw: x=%u y=%u, screen: x=%u y=%u\n", touchX, touchY, screenX, screenY);
-    if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 88, 416, 42)) {
+    if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 84, 416, 40)) {
       showWeather();
-    } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 140, 416, 42)) {
+    } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 128, 416, 40)) {
       showImages();
-    } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 192, 416, 42)) {
+    } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 172, 416, 40)) {
       showScanner();
+    } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 216, 416, 40)) {
+      showSensor();
     } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 342, 218, 120, 32) && networkPage > 0) {
       --networkPage;
       drawScanner();
@@ -513,6 +633,8 @@ void loop() {
 
   if (activeScreen == Screen::Menu && millis() - lastMenuStatusDraw >= menuStatusIntervalMs) {
     lastMenuStatusDraw = millis();
+    updateSensorData();
+    drawMenuTemperatureStatus();
     if (batteryStatusText() != displayedBatteryStatus) drawBatteryStatus();
     if (wifiStatusText() != displayedWifiStatus) drawMenuStatusBar();
   }
