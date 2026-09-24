@@ -29,6 +29,9 @@ constexpr int sdData2Pin = 48;
 constexpr int sdData3Pin = 47;
 constexpr unsigned long imageIntervalMs = 5000;
 constexpr unsigned long menuStatusIntervalMs = 1000;
+constexpr unsigned long sensorLogIntervalMs = 300000;
+constexpr unsigned long bootButtonDebounceMs = 50;
+constexpr char sensorLogPath[] = "/sensor_log.csv";
 constexpr char weatherUrl[] = "https://api.open-meteo.com/v1/forecast?latitude=41.1544&longitude=-95.8900&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph";
 
 TFT_eSPI display;
@@ -36,6 +39,8 @@ Adafruit_NeoPixel rgbLed(1, rgbLedPin, NEO_GRB + NEO_KHZ800);
 Adafruit_BME280 bme280;
 Adafruit_BMP280 bmp280;
 bool lastTouch = false;
+bool lastBootButtonState = false;
+bool screenOff = false;
 bool sdAvailable = false;
 bool sensorAvailable = false;
 bool sensorHasHumidity = false;
@@ -44,6 +49,7 @@ uint8_t sensorAddress = 0;
 String sensorModel;
 unsigned long imageShownAt = 0;
 unsigned long lastMenuStatusDraw = 0;
+unsigned long lastSensorLogAt = 0;
 String displayedWifiStatus;
 String displayedBatteryStatus;
 uint8_t imageIndex = 0;
@@ -178,15 +184,7 @@ float batteryVoltage() {
 }
 
 uint8_t batteryPercent(float voltage) {
- /*  if (voltage <= 3.30f) return 0;
-  if (voltage >= 4.20f) return 100;
-  if (voltage < 3.50f) return 10;
-  if (voltage < 3.60f) return 25;
-  if (voltage < 3.70f) return 45;
-  if (voltage < 3.80f) return 65;
-  if (voltage < 3.90f) return 80;
-  if (voltage < 4.00f) return 90;
-  if (voltage < 4.10f) return 95;*/
+ 
 
   float minVoltage = 3.30f;
   float maxVoltage = 4.20f;
@@ -223,6 +221,43 @@ void updateSensorData() {
     sensorData.pressure = bmp280.readPressure() / 100.0f;
   }
   sensorReadingValid = sensorAvailable && !isnan(sensorData.temperature) && !isnan(sensorData.pressure);
+}
+
+void logSensorData() {
+  if (!sdAvailable) return;
+
+  File logFile = SD_MMC.open(sensorLogPath, FILE_APPEND);
+  if (!logFile) {
+    Serial.printf("Could not open sensor log: %s\n", sensorLogPath);
+    return;
+  }
+
+  if (logFile.size() == 0) {
+    logFile.println("uptime_seconds,battery_voltage_v,battery_percent,temperature_c,temperature_f,pressure_hpa,humidity_percent,sensor_model,sensor_address");
+  }
+
+  float voltage = batteryVoltage();
+  float temperatureFahrenheit = sensorData.temperature * 9.0f / 5.0f + 32.0f;
+  logFile.print(millis() / 1000);
+  logFile.print(",");
+  logFile.print(voltage, 3);
+  logFile.print(",");
+  logFile.print(batteryPercent(voltage));
+  logFile.print(",");
+  if (sensorReadingValid) logFile.print(sensorData.temperature, 2);
+  logFile.print(",");
+  if (sensorReadingValid) logFile.print(temperatureFahrenheit, 2);
+  logFile.print(",");
+  if (sensorReadingValid) logFile.print(sensorData.pressure, 2);
+  logFile.print(",");
+  if (sensorHasHumidity && sensorReadingValid) logFile.print(sensorData.humidity, 2);
+  logFile.print(",");
+  logFile.print(sensorAvailable ? sensorModel : "");
+  logFile.print(",");
+  if (sensorAvailable) logFile.printf("0x%02X", sensorAddress);
+  logFile.println();
+  logFile.close();
+  Serial.printf("Sensor data appended to %s\n", sensorLogPath);
 }
 
 void drawMenuTemperatureStatus() {
@@ -575,6 +610,7 @@ void setup() {
   pinMode(backlightPin, OUTPUT);
   digitalWrite(backlightPin, HIGH);
   pinMode(bootButtonPin, INPUT_PULLUP);
+  lastBootButtonState = digitalRead(bootButtonPin) == LOW;
   analogSetPinAttenuation(batteryAdcPin, ADC_11db);
 
   rgbLed.begin();
@@ -599,6 +635,8 @@ void setup() {
   sdAvailable = SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 5) &&
                 SD_MMC.cardType() != CARD_NONE;
   Serial.printf("SD card: %s\n", sdAvailable ? "ready" : "not detected");
+  logSensorData();
+  lastSensorLogAt = millis();
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
@@ -608,6 +646,18 @@ void setup() {
 }
 
 void loop() {
+  bool bootButtonPressed = digitalRead(bootButtonPin) == LOW;
+  static unsigned long lastBootButtonChangeAt = 0;
+  if (bootButtonPressed != lastBootButtonState &&
+      millis() - lastBootButtonChangeAt >= bootButtonDebounceMs) {
+    lastBootButtonChangeAt = millis();
+    lastBootButtonState = bootButtonPressed;
+    if (bootButtonPressed) {
+      screenOff = !screenOff;
+      digitalWrite(backlightPin, screenOff ? LOW : HIGH);
+    }
+  }
+
   uint16_t touchX;
   uint16_t touchY;
   bool touched = readTouch(touchX, touchY);
@@ -646,6 +696,12 @@ void loop() {
     drawMenuTemperatureStatus();
     if (batteryStatusText() != displayedBatteryStatus) drawBatteryStatus();
     if (wifiStatusText() != displayedWifiStatus) drawMenuStatusBar();
+  }
+
+  if (sdAvailable && millis() - lastSensorLogAt >= sensorLogIntervalMs) {
+    lastSensorLogAt = millis();
+    updateSensorData();
+    logSensorData();
   }
 
   if (activeScreen == Screen::Images && imageCount > 0 && millis() - imageShownAt >= imageIntervalMs) {
