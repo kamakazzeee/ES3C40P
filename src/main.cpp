@@ -197,7 +197,8 @@ void drawScanner() {
       display.setTextColor(rssi >= -67 ? TFT_GREEN : rssi >= -80 ? TFT_YELLOW : TFT_ORANGE, TFT_BLACK);
       display.drawRightString(String(rssi) + " dBm", 460, rowY, 2);
     }
-    display.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    display.setTextColor(TFT_LIGHTGREY, TFT_B
+      LACK);
     display.drawCentreString("Page " + String(networkPage + 1) + " of " +
                                  String((networkCount + networksPerPage - 1) / networksPerPage),
                              240, 198, 2);
