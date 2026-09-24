@@ -178,7 +178,7 @@ float batteryVoltage() {
 }
 
 uint8_t batteryPercent(float voltage) {
-  if (voltage <= 3.30f) return 0;
+ /*  if (voltage <= 3.30f) return 0;
   if (voltage >= 4.20f) return 100;
   if (voltage < 3.50f) return 10;
   if (voltage < 3.60f) return 25;
@@ -186,8 +186,17 @@ uint8_t batteryPercent(float voltage) {
   if (voltage < 3.80f) return 65;
   if (voltage < 3.90f) return 80;
   if (voltage < 4.00f) return 90;
-  if (voltage < 4.10f) return 95;
-  return 98;
+  if (voltage < 4.10f) return 95;*/
+
+  float minVoltage = 3.30f;
+  float maxVoltage = 4.20f;
+
+  if (voltage <= minVoltage) return 0;
+  if (voltage >= maxVoltage) return 100;
+
+  return static_cast<uint8_t>((voltage - minVoltage) / (maxVoltage - minVoltage) * 100.0f);
+  
+  
 }
 
 String batteryStatusText() {
