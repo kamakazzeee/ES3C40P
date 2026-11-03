@@ -809,7 +809,8 @@ void loop() {
     touched = false;
   }
   if (touched && !lastTouch) {
-    uint16_t screenX = 479 - (touchY > 479 ? 479 : touchY);
+    // Touch Y runs left to right across the rotated screen; X runs bottom to top
+    uint16_t screenX = touchY > 479 ? 479 : touchY;
     uint16_t screenY = 319 - (touchX > 319 ? 319 : touchX);
     Serial.printf("Touch raw: x=%u y=%u, screen: x=%u y=%u\n", touchX, touchY, screenX, screenY);
     if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 84, 416, 40)) {
@@ -820,13 +821,13 @@ void loop() {
       showScanner();
     } else if (activeScreen == Screen::Menu && tapped(screenX, screenY, 32, 216, 416, 40)) {
       showSensor();
-    } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 342, 218, 120, 32) && networkPage > 0) {
+    } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 18, 218, 120, 32) && networkPage > 0) {
       --networkPage;
       drawScanner();
     } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 150, 218, 180, 32)) {
       scanNetworks();
       drawScanner();
-    } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 18, 218, 120, 32) &&
+    } else if (activeScreen == Screen::Scanner && tapped(screenX, screenY, 342, 218, 120, 32) &&
                networkCount > 0 && (networkPage + 1) * networksPerPage < networkCount) {
       ++networkPage;
       drawScanner();
