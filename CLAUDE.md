@@ -2,7 +2,7 @@
 
 PlatformIO + Arduino firmware for the LCDWIKI ES3C40P: 4.0" 480x320 IPS (ST7796S) with capacitive
 touch, ESP32-S3 (16 MB flash, 8 MB OPI PSRAM). A touch menu with Weather (Open-Meteo), SD Image Viewer,
-Wi-Fi Scanner and Environment Sensor screens, a startup chime, and 5-minute sensor logging to
+Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, and 5-minute sensor logging to
 `/sensor_log.csv` on the SD card.
 
 ## Code layout
@@ -11,6 +11,9 @@ Wi-Fi Scanner and Environment Sensor screens, a startup chime, and 5-minute sens
 - `include/pins.h`: every pin and I2C address.
 - `src/hardware/`: one file pair per part (board, touch, battery, env_sensor, audio, sd_storage).
   Plain functions, with private state in an unnamed namespace in the `.cpp`.
+- Audio runs in its own FreeRTOS task on core 0 (loop() and all drawing are on core 1): callers
+  queue a job (`startRecording`, `startPlayback`, `playStartupChime`), poll `audioBusy()`, and
+  call `stopAudio()` before freeing a buffer the task is using. Never draw from the audio task.
 - `src/net/`: `wifi_connection` and `weather_client` (fetches data, never draws).
 - `src/ui/ui.*`: the shared `display` object, `drawHeader()`, `Button`, `drawButton()`,
   `drawSmoothCentre()`.

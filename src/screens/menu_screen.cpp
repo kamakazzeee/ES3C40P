@@ -5,6 +5,7 @@
 #include "hardware/sd_storage.h"
 #include "net/wifi_connection.h"
 #include "screens/image_screen.h"
+#include "screens/mic_screen.h"
 #include "screens/scanner_screen.h"
 #include "screens/sensor_screen.h"
 #include "screens/weather_screen.h"
@@ -25,10 +26,11 @@ struct MenuItem {
 
 // To add a menu option: write a new screen and add one line here
 const MenuItem menuItems[] = {
-    {{32, 84, 416, 40}, "CURRENT WEATHER", TFT_DARKCYAN, TFT_CYAN, &weatherScreen},
-    {{32, 128, 416, 40}, "SD IMAGE VIEWER", TFT_DARKGREEN, TFT_GREEN, &imageScreen},
-    {{32, 172, 416, 40}, "WI-FI SIGNAL SCANNER", TFT_DARKGREY, TFT_LIGHTGREY, &scannerScreen},
-    {{32, 216, 416, 40}, "ENVIRONMENT SENSOR", TFT_DARKCYAN, TFT_CYAN, &sensorScreen},
+    {{32, 84, 416, 34}, "CURRENT WEATHER", TFT_DARKCYAN, TFT_CYAN, &weatherScreen},
+    {{32, 122, 416, 34}, "SD IMAGE VIEWER", TFT_DARKGREEN, TFT_GREEN, &imageScreen},
+    {{32, 160, 416, 34}, "WI-FI SIGNAL SCANNER", TFT_DARKGREY, TFT_LIGHTGREY, &scannerScreen},
+    {{32, 198, 416, 34}, "ENVIRONMENT SENSOR", TFT_DARKCYAN, TFT_CYAN, &sensorScreen},
+    {{32, 236, 416, 34}, "MICROPHONE TEST", TFT_MAROON, TFT_RED, &micScreen},
 };
 }  // namespace
 
