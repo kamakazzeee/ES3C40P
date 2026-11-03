@@ -6,11 +6,15 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <Wire.h>
+#include <driver/i2s.h>
 #include <TFT_eSPI.h>
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_BMP280.h>
 #include "wifi_secrets.h"
+#include "fonts/MontserratBold72.h"
+#include "fonts/Roboto18.h"
+#include "fonts/RobotoBold28.h"
 
 constexpr uint8_t touchAddress = 0x38;
 constexpr uint8_t touchSdaPin = 16;
@@ -27,6 +31,15 @@ constexpr int sdData0Pin = 39;
 constexpr int sdData1Pin = 41;
 constexpr int sdData2Pin = 48;
 constexpr int sdData3Pin = 47;
+constexpr uint8_t codecAddress = 0x18;
+constexpr uint8_t amplifierEnablePin = 1;  // FM8002E, low = on
+constexpr int i2sMasterClockPin = 4;
+constexpr int i2sBitClockPin = 5;
+constexpr int i2sWordSelectPin = 7;
+constexpr int i2sDataOutPin = 8;  // ESP32 -> ES8311 DSDIN
+constexpr int i2sDataInPin = 6;   // ES8311 ASDOUT -> ESP32
+constexpr uint32_t audioSampleRate = 16000;
+constexpr i2s_port_t audioPort = I2S_NUM_0;
 constexpr unsigned long imageIntervalMs = 5000;
 constexpr unsigned long menuStatusIntervalMs = 1000;
 constexpr unsigned long sensorLogIntervalMs = 300000;
@@ -45,6 +58,7 @@ bool sdAvailable = false;
 bool sensorAvailable = false;
 bool sensorHasHumidity = false;
 bool sensorReadingValid = false;
+bool audioAvailable = false;
 uint8_t sensorAddress = 0;
 String sensorModel;
 unsigned long imageShownAt = 0;
@@ -347,20 +361,26 @@ void drawScanner() {
   drawBackButton();
 }
 
+// Smooth fonts replace the built-in ones while loaded, so unload before drawing with font numbers again
+void drawSmoothCentre(const uint8_t *font, const String &text, int16_t y, uint16_t color) {
+  display.loadFont(font);
+  display.setTextColor(color, TFT_BLACK);
+  display.setTextDatum(TC_DATUM);
+  display.drawString(text, 240, y);
+  display.setTextDatum(TL_DATUM);
+  display.unloadFont();
+}
+
 void drawWeather() {
   drawHeader("CURRENT WEATHER");
   if (!weather.available) {
-    display.setTextColor(TFT_ORANGE, TFT_BLACK);
-    display.drawCentreString("WEATHER UNAVAILABLE", 240, 135, 4);
-    display.setTextColor(TFT_WHITE, TFT_BLACK);
-    display.drawCentreString(weather.error, 240, 180, 2);
+    drawSmoothCentre(RobotoBold28, "Weather unavailable", 130, TFT_ORANGE);
+    drawSmoothCentre(Roboto18, weather.error, 178, TFT_WHITE);
   } else {
-    display.setTextColor(TFT_YELLOW, TFT_BLACK);
-    display.drawCentreString(String(weather.temperature, 1) + " F", 240, 106, 7);
-    display.setTextColor(TFT_WHITE, TFT_BLACK);
-    display.drawCentreString(weatherDescription(weather.weatherCode), 240, 178, 4);
-    display.drawCentreString("Humidity " + String(weather.humidity) + "%", 240, 220, 2);
-    display.drawCentreString("Wind " + String(weather.windSpeed, 1) + " mph", 240, 244, 2);
+    drawSmoothCentre(MontserratBold72, String(weather.temperature, 1) + "°F", 96, TFT_YELLOW);
+    drawSmoothCentre(RobotoBold28, weatherDescription(weather.weatherCode), 164, TFT_WHITE);
+    drawSmoothCentre(Roboto18, "Humidity " + String(weather.humidity) + "%", 204, TFT_LIGHTGREY);
+    drawSmoothCentre(Roboto18, "Wind " + String(weather.windSpeed, 1) + " mph", 230, TFT_LIGHTGREY);
   }
   drawBackButton();
 }
@@ -602,6 +622,112 @@ void initializeSensor() {
   }
 }
 
+bool writeCodecRegister(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(codecAddress);
+  Wire.write(reg);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+// ES8311 as I2S slave, MCLK = 256 x sample rate, 16-bit samples, DAC to speaker output
+bool initializeAudio() {
+  pinMode(amplifierEnablePin, OUTPUT);
+  digitalWrite(amplifierEnablePin, HIGH);
+
+  Wire.beginTransmission(codecAddress);
+  if (Wire.endTransmission() != 0) {
+    Serial.println("ES8311 codec not found");
+    return false;
+  }
+
+  i2s_config_t config = {};
+  config.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_TX);
+  config.sample_rate = audioSampleRate;
+  config.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+  config.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
+  config.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+  config.dma_buf_count = 4;
+  config.dma_buf_len = 256;
+  config.tx_desc_auto_clear = true;
+  config.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+  i2s_pin_config_t pins = {};
+  pins.mck_io_num = i2sMasterClockPin;
+  pins.bck_io_num = i2sBitClockPin;
+  pins.ws_io_num = i2sWordSelectPin;
+  pins.data_out_num = i2sDataOutPin;
+  pins.data_in_num = i2sDataInPin;
+  if (i2s_driver_install(audioPort, &config, 0, nullptr) != ESP_OK ||
+      i2s_set_pin(audioPort, &pins) != ESP_OK) {
+    Serial.println("I2S driver failed to start");
+    return false;
+  }
+
+  const uint8_t setup[][2] = {
+      {0x00, 0x1F}, {0x00, 0x00},  // reset
+      {0x00, 0x80},                // power on, slave mode
+      {0x01, 0x3F},                // all clocks on, MCLK from pin
+      {0x02, 0x00},                // pre-divide 1, multiply 1
+      {0x03, 0x10}, {0x04, 0x10},  // ADC and DAC oversampling
+      {0x05, 0x00},                // ADC and DAC clock divide 1
+      {0x06, 0x03}, {0x07, 0x00}, {0x08, 0xFF},
+      {0x09, 0x0C}, {0x0A, 0x0C},  // I2S format, 16-bit in and out
+      {0x0B, 0x00}, {0x0C, 0x00}, {0x10, 0x1F}, {0x11, 0x7F},
+      {0x0D, 0x01},                // power up analog circuits
+      {0x0E, 0x02},                // enable analog PGA and ADC modulator
+      {0x12, 0x00},                // power up DAC
+      {0x13, 0x10},                // enable output drive
+      {0x1C, 0x6A}, {0x37, 0x08},  // bypass equalizers
+      {0x32, 0xA8},                // DAC volume, 0xBF = 0 dB, 0.5 dB steps
+      {0x31, 0x00},                // unmute DAC
+  };
+  for (const auto &entry : setup) {
+    if (!writeCodecRegister(entry[0], entry[1])) {
+      Serial.printf("ES8311 write to 0x%02X failed\n", entry[0]);
+      return false;
+    }
+    if (entry[0] == 0x00 && entry[1] == 0x1F) delay(20);
+  }
+  Serial.println("ES8311 codec ready");
+  return true;
+}
+
+// Rising C major arpeggio, each note a sine with a soft attack and exponential decay
+void playStartupChime() {
+  if (!audioAvailable) return;
+  constexpr float notes[] = {523.25f, 659.25f, 783.99f, 1046.50f};
+  constexpr float noteSeconds = 0.14f;
+  constexpr float tailSeconds = 0.45f;
+  constexpr float amplitude = 9000.0f;
+  const uint32_t noteSamples = noteSeconds * audioSampleRate;
+  const uint32_t totalSamples = noteSamples * 3 + tailSeconds * audioSampleRate;
+
+  digitalWrite(amplifierEnablePin, LOW);
+  delay(20);
+  int16_t frames[256 * 2];
+  uint32_t sample = 0;
+  while (sample < totalSamples) {
+    size_t count = 0;
+    for (; count < 256 && sample < totalSamples; ++count, ++sample) {
+      float value = 0;
+      for (uint8_t note = 0; note < 4; ++note) {
+        uint32_t start = note * noteSamples;
+        if (sample < start) continue;
+        float t = (sample - start) / static_cast<float>(audioSampleRate);
+        float envelope = min(t / 0.005f, 1.0f) * expf(-t * (note == 3 ? 4.0f : 9.0f));
+        value += envelope * sinf(2.0f * PI * notes[note] * t);
+      }
+      int16_t level = static_cast<int16_t>(constrain(value * amplitude, -32767.0f, 32767.0f));
+      frames[count * 2] = level;
+      frames[count * 2 + 1] = level;
+    }
+    size_t written;
+    i2s_write(audioPort, frames, count * 2 * sizeof(int16_t), &written, portMAX_DELAY);
+  }
+  i2s_zero_dma_buffer(audioPort);
+  delay(60);
+  digitalWrite(amplifierEnablePin, HIGH);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -627,6 +753,7 @@ void setup() {
   Wire.setClock(100000);
   initializeSensor();
   updateSensorData();
+  audioAvailable = initializeAudio();
   display.init();
   display.setRotation(1);
   TJpgDec.setCallback(tftOutput);
@@ -643,6 +770,7 @@ void setup() {
   WiFi.persistent(false);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   showMenu();
+  playStartupChime();
 }
 
 void loop() {
