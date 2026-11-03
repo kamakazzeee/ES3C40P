@@ -52,6 +52,9 @@ Adafruit_NeoPixel rgbLed(1, rgbLedPin, NEO_GRB + NEO_KHZ800);
 Adafruit_BME280 bme280;
 Adafruit_BMP280 bmp280;
 bool lastTouch = false;
+volatile bool touchDataReady = false;
+unsigned long lastTouchPulseAt = 0;
+constexpr unsigned long touchReleaseMs = 40;  // touch controller pulses every ~10 ms while touched
 bool lastBootButtonState = false;
 bool screenOff = false;
 bool sdAvailable = false;
@@ -95,6 +98,13 @@ struct WeatherData {
 void setRgb(uint32_t color) {
   rgbLed.setPixelColor(0, color);
   rgbLed.show();
+}
+
+// Runs on each falling edge of the touch INT pin, which pulses about every 10 ms while
+// the screen is touched and stays quiet otherwise. Interrupt handlers must be short, so
+// it only raises a flag and loop() does the I2C read.
+void IRAM_ATTR onTouchInterrupt() {
+  touchDataReady = true;
 }
 
 bool readTouch(uint16_t &x, uint16_t &y) {
@@ -748,6 +758,7 @@ void setup() {
   delay(10);
   digitalWrite(touchResetPin, HIGH);
   pinMode(touchInterruptPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(touchInterruptPin), onTouchInterrupt, FALLING);
 
   Wire.begin(touchSdaPin, touchSclPin);
   Wire.setClock(100000);
@@ -786,9 +797,17 @@ void loop() {
     }
   }
 
-  uint16_t touchX;
-  uint16_t touchY;
-  bool touched = readTouch(touchX, touchY);
+  // Only talk to the touch controller after it signals new data; when the pulses stop, the finger has lifted
+  uint16_t touchX = 0;
+  uint16_t touchY = 0;
+  bool touched = lastTouch;
+  if (touchDataReady) {
+    touchDataReady = false;
+    lastTouchPulseAt = millis();
+    touched = readTouch(touchX, touchY);
+  } else if (lastTouch && millis() - lastTouchPulseAt > touchReleaseMs) {
+    touched = false;
+  }
   if (touched && !lastTouch) {
     uint16_t screenX = 479 - (touchY > 479 ? 479 : touchY);
     uint16_t screenY = 319 - (touchX > 319 ? 319 : touchX);
