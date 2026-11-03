@@ -1,0 +1,36 @@
+# Compiles the firmware on GitHub for every push and pull request, so a change that
+# doesn't build shows a red cross on GitHub before it ever reaches the board.
+name: Build firmware
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      # The real wifi_secrets.h is git-ignored, so build with the placeholder values
+      - name: Use example Wi-Fi secrets
+        run: cp include/wifi_secrets.example.h include/wifi_secrets.h
+
+      # Install libraries first so patch_tft_setup.py finds TFT_eSPI and copies User_Setup.h into it
+      - name: Install libraries
+        run: pio pkg install
+
+      - name: Build
+        run: pio run

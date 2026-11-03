@@ -1,9 +1,24 @@
 # ES3C40P touchscreen hub
 
 PlatformIO + Arduino firmware for the LCDWIKI ES3C40P: 4.0" 480x320 IPS (ST7796S) with capacitive
-touch, ESP32-S3 (16 MB flash, 8 MB OPI PSRAM). Almost all code is in `src/main.cpp`: a touch menu with
-Weather (Open-Meteo), SD Image Viewer, Wi-Fi Scanner and Environment Sensor screens, a startup chime,
-and 5-minute sensor logging to `/sensor_log.csv` on the SD card.
+touch, ESP32-S3 (16 MB flash, 8 MB OPI PSRAM). A touch menu with Weather (Open-Meteo), SD Image Viewer,
+Wi-Fi Scanner and Environment Sensor screens, a startup chime, and 5-minute sensor logging to
+`/sensor_log.csv` on the SD card.
+
+## Code layout
+
+- `src/main.cpp`: `setup()` starts the hardware; `loop()` passes taps to the current screen.
+- `include/pins.h`: every pin and I2C address.
+- `src/hardware/`: one file pair per part (board, touch, battery, env_sensor, audio, sd_storage).
+  Plain functions, with private state in an unnamed namespace in the `.cpp`.
+- `src/net/`: `wifi_connection` and `weather_client` (fetches data, never draws).
+- `src/ui/ui.*`: the shared `display` object, `drawHeader()`, `Button`, `drawButton()`,
+  `drawSmoothCentre()`.
+- `src/screens/`: `Screen` base class (`enter`, `draw`, `onTap`, `update`, `leave`) and one class
+  per menu option, each with a global instance (`weatherScreen`, ...). `src/app.*` switches screens.
+- New menu option: add a screen class, then one line in `menuItems` in `menu_screen.cpp`.
+- Use one `Button` for both drawing and tap testing so they can't drift apart.
+- GitHub Actions (`.github/workflows/build.yml`) compiles every push with the example secrets.
 
 ## Build, upload, monitor
 
@@ -39,6 +54,8 @@ and 5-minute sensor logging to `/sensor_log.csv` on the SD card.
 
 ## Things learned the hard way
 
+- Raw touch Y is screen X and raw touch X is (319 - screen Y) in rotation 1; `readTap()` does the
+  conversion. It was once mirrored, which full-width buttons hid.
 - Touch INT does not stay low while touched: it pulses low for <1 ms about every 10 ms and sends
   nothing on release. Use the FALLING-edge interrupt (`onTouchInterrupt` sets `touchDataReady`) and
   treat 40 ms without a pulse as release. Polling the pin misses most pulses.
@@ -55,7 +72,7 @@ and 5-minute sensor logging to `/sensor_log.csv` on the SD card.
 
 ## Conventions
 
-- Keep the style of `src/main.cpp`: `constexpr` pin constants at the top, camelCase, small helper
+- Keep the existing style: `constexpr` constants (pins in `include/pins.h`), camelCase, small helper
   functions, sparse comments that explain why.
 - `include/wifi_secrets.h` holds real credentials and is git-ignored; never commit it.
   `include/wifi_secrets.example.h` is the template.
