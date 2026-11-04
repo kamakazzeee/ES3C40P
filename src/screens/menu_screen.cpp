@@ -9,12 +9,14 @@
 #include "screens/scanner_screen.h"
 #include "screens/sensor_screen.h"
 #include "screens/weather_screen.h"
+#include "screens/wifi_screen.h"
 #include "ui/ui.h"
 
 MenuScreen menuScreen;
 
 namespace {
 constexpr unsigned long statusIntervalMs = 1000;
+constexpr Button wifiStatusTapArea = {0, 272, 320, 48};  // left of the SD card status
 
 struct MenuItem {
   Button button;
@@ -50,6 +52,7 @@ void MenuScreen::onTap(uint16_t x, uint16_t y) {
       return;
     }
   }
+  if (wifiStatusTapArea.contains(x, y)) showScreen(wifiScreen);
 }
 
 void MenuScreen::update() {
@@ -59,6 +62,10 @@ void MenuScreen::update() {
   drawTemperatureStatus();
   drawBatteryStatus(true);
   if (wifiStatusText() != displayedWifiStatus) drawStatusBar();
+  if (!offeredWifiScreen && autoConnectFailed()) {
+    offeredWifiScreen = true;
+    showScreen(wifiScreen);
+  }
 }
 
 void MenuScreen::drawTemperatureStatus() {

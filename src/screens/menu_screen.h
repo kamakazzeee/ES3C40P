@@ -12,6 +12,7 @@ class MenuScreen : public Screen {
   void drawStatusBar();
   unsigned long lastStatusDrawAt = 0;
   String displayedWifiStatus;
+  bool offeredWifiScreen = false;  // opens by itself only once per boot, so BACK sticks
 };
 
 extern MenuScreen menuScreen;

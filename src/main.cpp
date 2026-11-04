@@ -45,6 +45,7 @@ void loop() {
   uint16_t x;
   uint16_t y;
   if (readTap(x, y)) currentScreen().onTap(x, y);
+  updateWifi();
   currentScreen().update();
 
   logSensorDataIfDue();

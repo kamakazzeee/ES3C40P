@@ -1,8 +1,19 @@
 #pragma once
 #include <Arduino.h>
 
-void beginWifi();  // start connecting to the network in wifi_secrets.h
+// At boot a background scan looks for a known network: the home network in wifi_secrets.h
+// first, then networks saved from the Wi-Fi screen, most recently joined first.
+void beginWifi();
+void updateWifi();  // call from loop(): finishes the background scan and connection attempt
 bool wifiConnected();
 bool wifiConnecting();
 String wifiStatusText();  // e.g. "Wi-Fi: MyNetwork  192.168.1.20"
 bool waitForWifi(unsigned long timeoutMs);  // reconnect if needed; true once connected
+
+bool autoConnectFailed();  // no known network in range, or it would not connect
+void retryAutoConnect();
+void prepareWifiScan();  // waits out a background scan and stops attempts that are not connected
+
+bool knownNetworkPassword(const String &ssid, String &password);  // home or saved
+// Blocks until connected or timed out; a network joined this way is saved
+bool joinNetwork(const String &ssid, const String &password, unsigned long timeoutMs);

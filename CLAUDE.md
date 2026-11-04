@@ -14,7 +14,13 @@ Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, 
 - Audio runs in its own FreeRTOS task on core 0 (loop() and all drawing are on core 1): callers
   queue a job (`startRecording`, `startPlayback`, `playStartupChime`), poll `audioBusy()`, and
   call `stopAudio()` before freeing a buffer the task is using. Never draw from the audio task.
-- `src/net/`: `wifi_connection` and `weather_client` (fetches data, never draws).
+- `src/net/`: `wifi_connection`, `saved_networks` and `weather_client` (fetches data, never draws).
+- Wi-Fi: at boot a background scan (finished by `updateWifi()` in `loop()`) joins the home network
+  from `wifi_secrets.h` if in range, else the most recent saved one. If none works, the menu opens
+  `wifiScreen` once; tapping the Wi-Fi status in the menu's bottom bar opens it any time. Networks
+  joined there are saved to NVS (`Preferences`, namespace `wifi`, up to 5, passwords unencrypted).
+- `keyboardScreen.open(title, text, masked, maxLength, onDone)` is a reusable on-screen keyboard;
+  `onDone(accepted, text)` must show the next screen.
 - `src/ui/ui.*`: the shared `display` object, `drawHeader()`, `Button`, `drawButton()`,
   `drawSmoothCentre()`.
 - `src/screens/`: `Screen` base class (`enter`, `draw`, `onTap`, `update`, `leave`) and one class
