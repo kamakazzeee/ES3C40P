@@ -1,21 +1,29 @@
 #include "screens/image_screen.h"
 
 #include <SD_MMC.h>
-#include <TJpg_Decoder.h>
 
 #include "app.h"
 #include "hardware/sd_storage.h"
+#include "hardware/touch.h"
+#include "ui/picture.h"
 #include "ui/ui.h"
 
 ImageScreen imageScreen;
 
 namespace {
 constexpr unsigned long imageIntervalMs = 5000;
+constexpr Button imageArea = {0, 82, 480, 176};  // between the header line and the back button
 
-// The JPEG decoder hands over the picture in small blocks; this copies each one to the screen
-bool tftOutput(int16_t x, int16_t y, uint16_t width, uint16_t height, uint16_t *bitmap) {
-  if (y >= display.height()) return false;
-  display.pushImage(x, y, width, height, bitmap);
+// A tap made while a picture is decoding; update() hands it to onTap() once the decode stops
+bool tapDuringDecode = false;
+uint16_t decodeTapX = 0;
+uint16_t decodeTapY = 0;
+
+// Checked between decoded blocks, so a slow picture can be left or skipped
+// (readTap() only touches I2C after the touch interrupt has fired)
+bool tapStopsDecode() {
+  if (!readTap(decodeTapX, decodeTapY)) return false;
+  tapDuringDecode = true;
   return true;
 }
 
@@ -26,10 +34,9 @@ void showImageError(const char *message) {
 }  // namespace
 
 void ImageScreen::enter() {
-  TJpgDec.setCallback(tftOutput);
   scanImages();
   imageIndex = 0;
-  imageShownAt = millis();
+  tapDuringDecode = false;
 }
 
 void ImageScreen::scanImages() {
@@ -53,8 +60,10 @@ void ImageScreen::scanImages() {
   directory.close();
 }
 
+// The header, counter and back button go up first so they are there while a slow picture decodes
 void ImageScreen::draw() {
   drawHeader("SD IMAGE VIEWER");
+  drawBackButton();
   if (!sdCardReady()) {
     display.setTextColor(TFT_ORANGE, TFT_BLACK);
     display.drawCentreString("SD CARD NOT DETECTED", 240, 148, 4);
@@ -64,61 +73,48 @@ void ImageScreen::draw() {
     display.setTextColor(TFT_WHITE, TFT_BLACK);
     display.drawCentreString("Place .jpg files in the card root", 240, 186, 2);
   } else {
-    drawImage(imagePaths[imageIndex]);
     display.setTextColor(TFT_WHITE, TFT_BLACK);
-    display.drawRightString(String(imageIndex + 1) + " / " + String(imageCount), 460, 84, 2);
+    display.drawRightString(String(imageIndex + 1) + " / " + String(imageCount), 460, 52, 2);
+    drawImage(imagePaths[imageIndex]);
   }
-  drawBackButton();
+  imageShownAt = millis();  // after decoding, so a slow picture still gets its full 5 s
 }
 
-// Shrinks the picture by 2, 4 or 8 until it fits the 480 x 176 area, then centres it
 void ImageScreen::drawImage(const String &path) {
-  display.fillRect(0, 82, 480, 184, TFT_BLACK);
-  uint16_t imageWidth = 0;
-  uint16_t imageHeight = 0;
-  File sizeFile = SD_MMC.open(path, FILE_READ);
-  if (!sizeFile) {
-    Serial.printf("Could not open JPEG: %s\n", path.c_str());
-    showImageError("COULD NOT OPEN JPEG");
-    return;
-  }
-  JRESULT sizeResult = TJpgDec.getSdJpgSize(&imageWidth, &imageHeight, sizeFile);
-  sizeFile.close();
-  if (sizeResult != JDR_OK) {
-    Serial.printf("JPEG header failed for %s: %d\n", path.c_str(), sizeResult);
-    showImageError("JPEG FORMAT UNSUPPORTED");
-    return;
-  }
-
-  uint8_t scale = 1;
-  while ((imageWidth / scale > 480 || imageHeight / scale > 176) && scale < 8) scale *= 2;
-  uint16_t scaledWidth = imageWidth / scale;
-  uint16_t scaledHeight = imageHeight / scale;
-  int16_t imageX = (480 - scaledWidth) / 2;
-  int16_t imageY = 82 + (176 - scaledHeight) / 2;
-  TJpgDec.setJpgScale(scale);
-  display.setSwapBytes(true);
-
-  File imageFile = SD_MMC.open(path, FILE_READ);
-  JRESULT result = imageFile ? TJpgDec.drawSdJpg(imageX, imageY, imageFile) : JDR_INP;
-  if (imageFile) imageFile.close();
-  if (result != JDR_OK) {
-    Serial.printf("JPEG decode failed for %s: %d\n", path.c_str(), result);
-    showImageError("JPEG DECODE FAILED");
+  switch (drawPicture(path, imageArea, tapStopsDecode)) {
+    case PictureResult::openFailed: showImageError("COULD NOT OPEN JPEG"); break;
+    case PictureResult::unsupported: showImageError("JPEG FORMAT UNSUPPORTED"); break;
+    case PictureResult::decodeFailed: showImageError("JPEG DECODE FAILED"); break;
+    case PictureResult::shown:
+    case PictureResult::stopped: break;
   }
 }
 
+// BACK returns to the menu; a tap anywhere else skips to the next picture
 void ImageScreen::onTap(uint16_t x, uint16_t y) {
-  if (backButtonTapArea.contains(x, y)) showMenu();
+  if (backButtonTapArea.contains(x, y)) {
+    showMenu();
+  } else if (imageCount > 0) {
+    showNextImage();
+  }
 }
 
 void ImageScreen::update() {
+  if (tapDuringDecode) {
+    tapDuringDecode = false;
+    onTap(decodeTapX, decodeTapY);
+    return;
+  }
   if (imageCount == 0 || millis() - imageShownAt < imageIntervalMs) return;
+  showNextImage();
+}
+
+// After the last picture the slideshow returns to the menu
+void ImageScreen::showNextImage() {
   ++imageIndex;
   if (imageIndex >= imageCount) {
     showMenu();
   } else {
-    imageShownAt = millis();
     draw();
   }
 }

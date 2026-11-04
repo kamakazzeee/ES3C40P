@@ -26,6 +26,9 @@ Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, 
   `onDone(accepted, text)` must show the next screen.
 - `src/ui/ui.*`: the shared `display` object, `drawHeader()`, `Button`, `drawButton()`,
   `drawSmoothCentre()`.
+- `src/ui/picture.*`: `drawPicture()` fits a JPEG from the SD card into a box. Pictures bigger
+  than the box are decoded at 1/2-1/8 into PSRAM, box-filtered down, and saved as raw RGB565 to
+  `/.thumbs/<name>.bin` (header holds the source size and date, so a replaced file is redone).
 - `src/screens/`: `Screen` base class (`enter`, `draw`, `onTap`, `update`, `leave`) and one class
   per menu option, each with a global instance (`weatherScreen`, ...). `src/app.*` switches screens.
 - New menu option: add a screen class, then one line in `menuItems` in `menu_screen.cpp`.
