@@ -12,7 +12,7 @@ constexpr size_t framesPerChunk = 256;
 constexpr size_t jobChunkSamples = 512;  // 32 ms, how often the level is refreshed
 constexpr BaseType_t audioCore = 0;      // loop() and all drawing run on core 1
 
-enum class AudioJob : uint8_t { record, play, chime };
+enum class AudioJob : uint8_t { record, play, chime, click };
 
 struct AudioCommand {
   AudioJob job;
@@ -227,6 +227,21 @@ void chimeJob() {
   amplifierOff();
 }
 
+// 6 ms of a 2.4 kHz sine with a fast decay: short enough to sound like a tap
+void clickJob() {
+  constexpr float frequency = 2400.0f;
+  constexpr float amplitude = 5000.0f;
+  constexpr size_t clickSamples = 0.006f * audioSampleRate;
+  int16_t chunk[clickSamples];
+  for (size_t i = 0; i < clickSamples; ++i) {
+    float t = i / static_cast<float>(audioSampleRate);
+    chunk[i] = static_cast<int16_t>(amplitude * expf(-t * 900.0f) * sinf(2.0f * PI * frequency * t));
+  }
+  amplifierOn();
+  writeMono(chunk, clickSamples);
+  amplifierOff();
+}
+
 // Between jobs the task keeps reading the mic, which also keeps the level fresh.
 // i2s_read blocks until DMA has data, so this never spins.
 void audioTask(void *) {
@@ -238,6 +253,7 @@ void audioTask(void *) {
         case AudioJob::record: recordJob(command.samples, command.count); break;
         case AudioJob::play: playJob(command.samples, command.count); break;
         case AudioJob::chime: chimeJob(); break;
+        case AudioJob::click: clickJob(); break;
       }
       busy = false;
     } else {
@@ -271,6 +287,10 @@ bool audioReady() {
 
 void playStartupChime() {
   queueJob(AudioJob::chime, nullptr, 0);
+}
+
+void playKeyClick() {
+  queueJob(AudioJob::click, nullptr, 0);
 }
 
 bool startRecording(int16_t *samples, size_t count) {

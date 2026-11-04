@@ -8,7 +8,6 @@ void updateWifi();  // call from loop(): finishes the background scan and connec
 bool wifiConnected();
 bool wifiConnecting();
 String wifiStatusText();  // e.g. "Wi-Fi: MyNetwork  192.168.1.20"
-bool waitForWifi(unsigned long timeoutMs);  // reconnect if needed; true once connected
 
 bool autoConnectFailed();  // no known network in range, or it would not connect
 void retryAutoConnect();
@@ -17,3 +16,5 @@ void prepareWifiScan();  // waits out a background scan and stops attempts that 
 bool knownNetworkPassword(const String &ssid, String &password);  // home or saved
 // Blocks until connected or timed out; a network joined this way is saved
 bool joinNetwork(const String &ssid, const String &password, unsigned long timeoutMs);
+bool canForgetNetwork(const String &ssid);   // saved ones only; the home network is built in
+void forgetWifiNetwork(const String &ssid);  // also disconnects if it is the current network

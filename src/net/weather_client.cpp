@@ -2,23 +2,37 @@
 
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <WiFi.h>
 #include <WiFiClientSecure.h>
 
-#include "net/wifi_connection.h"
+#include <atomic>
 
 namespace {
+constexpr char weatherHost[] = "api.open-meteo.com";
 constexpr char weatherUrl[] = "https://api.open-meteo.com/v1/forecast?latitude=41.1544&longitude=-95.8900&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph";
+constexpr uint16_t connectTimeoutMs = 6000;
+constexpr uint16_t responseTimeoutMs = 8000;
+constexpr unsigned long handshakeTimeoutSeconds = 8;
+constexpr unsigned long retryWindowMs = 8000;  // only retry a failure that came back quickly
+constexpr BaseType_t weatherCore = 0;          // loop() and all drawing run on core 1
 
-// Returns the response body, or an empty string after two failed attempts
+std::atomic<bool> fetchRunning(false);
+WeatherData result;  // written by the fetch task only while fetchRunning is true
+
+// Returns the response body, or an empty string after the attempts fail.
+// WiFiClientSecure::setTimeout() takes seconds, unlike HTTPClient::setTimeout().
 String downloadWeather() {
   String responseBody;
+  unsigned long startedAt = millis();
   for (uint8_t attempt = 1; attempt <= 2 && responseBody.isEmpty(); ++attempt) {
+    if (attempt == 2 && millis() - startedAt > retryWindowMs) break;
     WiFiClientSecure client;
     client.setInsecure();
-    client.setTimeout(15000);
+    client.setHandshakeTimeout(handshakeTimeoutSeconds);
+    client.setTimeout(responseTimeoutMs / 1000);
     HTTPClient request;
-    request.setConnectTimeout(15000);
-    request.setTimeout(15000);
+    request.setConnectTimeout(connectTimeoutMs);
+    request.setTimeout(responseTimeoutMs);
     if (!request.begin(client, weatherUrl)) {
       Serial.println("Could not start weather request");
     } else {
@@ -35,12 +49,13 @@ String downloadWeather() {
   }
   return responseBody;
 }
-}  // namespace
 
+// A failed DNS lookup is the quickest sign that the Wi-Fi network has no internet
 WeatherData fetchWeather() {
   WeatherData weather;
-  if (!waitForWifi(10000)) {
-    weather.error = "Could not connect to Wi-Fi";
+  IPAddress address;
+  if (!WiFi.hostByName(weatherHost, address)) {
+    weather.error = "Wi-Fi has no internet access";
     return weather;
   }
 
@@ -63,6 +78,32 @@ WeatherData fetchWeather() {
   weather.weatherCode = current["weather_code"] | 0;
   weather.available = true;
   return weather;
+}
+
+void weatherTask(void *) {
+  result = fetchWeather();
+  fetchRunning = false;
+  vTaskDelete(nullptr);
+}
+}  // namespace
+
+// TLS needs a larger stack than the default
+void startWeatherFetch() {
+  if (fetchRunning) return;
+  fetchRunning = true;
+  if (xTaskCreatePinnedToCore(weatherTask, "weather", 12288, nullptr, 1, nullptr, weatherCore) != pdPASS) {
+    result = WeatherData();
+    result.error = "Could not start weather download";
+    fetchRunning = false;
+  }
+}
+
+bool weatherFetchRunning() {
+  return fetchRunning;
+}
+
+WeatherData latestWeather() {
+  return result;
 }
 
 const char *weatherDescription(int code) {

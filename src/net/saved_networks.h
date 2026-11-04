@@ -10,3 +10,4 @@ uint8_t savedNetworkCount();
 String savedNetworkSsid(uint8_t index);  // 0 is the most recently joined
 bool findSavedNetwork(const String &ssid, String &password);
 void saveNetwork(const String &ssid, const String &password);  // moves it to the front
+void forgetNetwork(const String &ssid);

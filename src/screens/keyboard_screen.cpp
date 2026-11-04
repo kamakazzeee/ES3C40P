@@ -1,6 +1,7 @@
 #include "screens/keyboard_screen.h"
 
 #include "app.h"
+#include "hardware/audio.h"
 #include "ui/ui.h"
 
 KeyboardScreen keyboardScreen;
@@ -160,6 +161,7 @@ void KeyboardScreen::onTap(uint16_t x, uint16_t y) {
   for (uint8_t i = 0; i < count; ++i) {
     const Key &key = keys[i];
     if (!key.button.contains(x, y)) continue;
+    playKeyClick();
     drawKey(key, page, true);
     delay(60);
     drawKey(key, page, false);

@@ -14,6 +14,7 @@ struct MicLevel {
 bool beginAudio();  // Wire must already be started
 bool audioReady();
 void playStartupChime();
+void playKeyClick();  // skipped if another sound is playing
 
 // Mono 16-bit samples at audioSampleRate. The buffer must stay valid until the job
 // finishes or stopAudio() returns. Both return false if audio is missing or busy.

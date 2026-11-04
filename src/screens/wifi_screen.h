@@ -3,7 +3,7 @@
 
 // Choose a Wi-Fi network: opened by tapping the Wi-Fi status on the home menu, or by itself
 // when no known network can be joined at boot. Locked networks ask for a password on the
-// on-screen keyboard; anything joined here is saved.
+// on-screen keyboard; anything joined here is saved, and tapping a saved network offers FORGET.
 class WifiScreen : public Screen {
  public:
   void enter() override;
@@ -21,7 +21,9 @@ class WifiScreen : public Screen {
 
   void returnFromKeyboard();
   void scanNetworks();
-  void choose(const Network &network);
+  void choose(uint8_t index);
+  void drawSavedNetworkPanel();
+  void onSavedNetworkPanelTap(uint16_t x, uint16_t y);
   void join(const String &ssid, const String &password);
   void askPassword(const String &ssid, const String &title);
   void askHiddenNetwork();
@@ -31,6 +33,7 @@ class WifiScreen : public Screen {
   bool scanFailed = false;
   bool keepResults = false;  // coming back from the keyboard, so skip the rescan
   uint8_t page = 0;
+  int8_t selected = -1;  // saved network whose CONNECT / FORGET panel is open
   String notice;
 };
 

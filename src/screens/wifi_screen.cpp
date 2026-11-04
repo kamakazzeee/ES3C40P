@@ -18,6 +18,9 @@ constexpr Button previousButton = {18, 218, 102, 32};
 constexpr Button rescanButton = {132, 218, 102, 32};
 constexpr Button otherButton = {246, 218, 102, 32};
 constexpr Button nextButton = {360, 218, 102, 32};
+constexpr Button panelConnectButton = {18, 176, 136, 44};
+constexpr Button panelForgetButton = {172, 176, 136, 44};
+constexpr Button panelCancelButton = {326, 176, 136, 44};
 
 // Used for both drawing a network row and testing taps on it
 Button rowButton(uint8_t row) {
@@ -71,6 +74,7 @@ void WifiScreen::scanNetworks() {
   scanFailed = found < 0;
   networkCount = 0;
   page = 0;
+  selected = -1;
   for (int16_t index = 0; index < found; ++index) {
     String ssid = WiFi.SSID(index);
     if (ssid.isEmpty()) continue;
@@ -100,7 +104,9 @@ void WifiScreen::draw() {
   display.setTextColor(TFT_ORANGE, TFT_BLACK);
   display.drawRightString(notice, 462, 52, 2);
 
-  if (networkCount == 0) {
+  if (selected >= 0) {
+    drawSavedNetworkPanel();
+  } else if (networkCount == 0) {
     display.setTextColor(TFT_ORANGE, TFT_BLACK);
     display.drawCentreString(scanFailed ? "SCAN FAILED" : "NO NETWORKS FOUND", 240, 142, 2);
   } else {
@@ -135,19 +141,59 @@ void WifiScreen::draw() {
     }
   }
 
-  drawPageButton(previousButton, "PREV", page > 0);
-  drawPageButton(rescanButton, "RESCAN", true);
-  drawPageButton(otherButton, "OTHER...", true);
-  drawPageButton(nextButton, "NEXT", page + 1 < pageCount());
+  if (selected < 0) {
+    drawPageButton(previousButton, "PREV", page > 0);
+    drawPageButton(rescanButton, "RESCAN", true);
+    drawPageButton(otherButton, "OTHER...", true);
+    drawPageButton(nextButton, "NEXT", page + 1 < pageCount());
+  }
   drawBackButton();
 }
 
+void WifiScreen::drawSavedNetworkPanel() {
+  const Network &network = networks[selected];
+  bool current = isCurrentNetwork(network.ssid);
+  display.setTextColor(TFT_WHITE, TFT_BLACK);
+  display.drawCentreString(shortSsid(network.ssid), 240, 100, 4);
+  display.setTextColor(current ? TFT_GREEN : TFT_CYAN, TFT_BLACK);
+  display.drawCentreString(current ? "Connected, saved network" : "Saved network", 240, 136, 2);
+  drawPageButton(panelConnectButton, "CONNECT", !current);
+  drawButton(panelForgetButton, "FORGET", TFT_MAROON, TFT_RED, TFT_WHITE);
+  drawPageButton(panelCancelButton, "CANCEL", true);
+}
+
+void WifiScreen::onSavedNetworkPanelTap(uint16_t x, uint16_t y) {
+  const Network network = networks[selected];
+  if (panelConnectButton.contains(x, y) && !isCurrentNetwork(network.ssid)) {
+    selected = -1;
+    String password;
+    knownNetworkPassword(network.ssid, password);
+    join(network.ssid, password);
+  } else if (panelForgetButton.contains(x, y)) {
+    forgetWifiNetwork(network.ssid);
+    selected = -1;
+    notice = "Forgot " + shortSsid(network.ssid);
+    draw();
+  } else if (panelCancelButton.contains(x, y)) {
+    selected = -1;
+    draw();
+  } else if (backButtonTapArea.contains(x, y)) {
+    selected = -1;
+    if (!wifiConnected()) retryAutoConnect();
+    showMenu();
+  }
+}
+
 void WifiScreen::onTap(uint16_t x, uint16_t y) {
+  if (selected >= 0) {
+    onSavedNetworkPanelTap(x, y);
+    return;
+  }
   uint8_t first = page * networksPerPage;
   uint8_t last = min<uint8_t>(first + networksPerPage, networkCount);
   for (uint8_t i = first; i < last; ++i) {
     if (rowButton(i - first).contains(x, y)) {
-      choose(networks[i]);
+      choose(i);
       return;
     }
   }
@@ -169,7 +215,14 @@ void WifiScreen::onTap(uint16_t x, uint16_t y) {
   }
 }
 
-void WifiScreen::choose(const Network &network) {
+// Saved networks open a CONNECT / FORGET panel; everything else connects straight away
+void WifiScreen::choose(uint8_t index) {
+  const Network &network = networks[index];
+  if (canForgetNetwork(network.ssid)) {
+    selected = index;
+    draw();
+    return;
+  }
   if (isCurrentNetwork(network.ssid)) {
     notice = "Already connected";
     draw();

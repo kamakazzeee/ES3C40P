@@ -7,9 +7,15 @@
 
 namespace {
 constexpr unsigned long autoJoinTimeoutMs = 15000;
+constexpr uint8_t maxScanAttempts = 3;
+constexpr unsigned long scanRetryDelayMs = 1500;
+constexpr unsigned long scanTimeoutMs = 15000;
 
-enum class AutoConnect : uint8_t { idle, scanning, joining, failed };
+enum class AutoConnect : uint8_t { idle, waitingToScan, scanning, joining, failed };
 AutoConnect autoConnect = AutoConnect::idle;
+uint8_t scanAttempts = 0;
+unsigned long scanRetryFrom = 0;
+unsigned long scanStartedAt = 0;
 
 String targetSsid;  // the network being joined, or already joined
 unsigned long attemptStartedAt = 0;
@@ -47,13 +53,47 @@ void stopAttempt() {
   targetSsid = "";
   autoConnect = AutoConnect::failed;
 }
+
+// The library reports an async scan as FAILED once 20 x 300 ms have passed, but a full scan
+// here takes ~6.6 s and still finishes, so a FAILED that early is not believed
+bool backgroundScanRunning() {
+  int16_t found = WiFi.scanComplete();
+  if (found == WIFI_SCAN_RUNNING) return true;
+  return found == WIFI_SCAN_FAILED && autoConnect == AutoConnect::scanning &&
+         millis() - scanStartedAt < scanTimeoutMs;
+}
+
+// An empty or failed result is retried a few times before giving up
+void startScan() {
+  ++scanAttempts;
+  scanStartedAt = millis();
+  if (WiFi.scanNetworks(true) == WIFI_SCAN_FAILED) {
+    scanRetryFrom = millis();
+    autoConnect = AutoConnect::waitingToScan;
+  } else {
+    autoConnect = AutoConnect::scanning;
+  }
+}
+
+void retryOrGiveUp(int16_t found) {
+  if (scanAttempts < maxScanAttempts) {
+    Serial.printf("Wi-Fi: scan attempt %u found nothing, retrying\n", scanAttempts);
+    scanRetryFrom = millis();
+    autoConnect = AutoConnect::waitingToScan;
+    return;
+  }
+  Serial.printf("Wi-Fi: no known network among %d in range\n", max<int16_t>(found, 0));
+  autoConnect = AutoConnect::failed;
+}
 }  // namespace
 
+// persistent(false) must come before mode(): mode() starts the radio and picks where it
+// keeps settings then. Otherwise every begin() also writes the network to the radio's flash.
 void beginWifi() {
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
-  WiFi.persistent(false);
   loadSavedNetworks();
   retryAutoConnect();
 }
@@ -61,21 +101,31 @@ void beginWifi() {
 void retryAutoConnect() {
   WiFi.disconnect();
   targetSsid = "";
-  autoConnect = WiFi.scanNetworks(true) == WIFI_SCAN_FAILED ? AutoConnect::failed : AutoConnect::scanning;
+  scanAttempts = 0;
+  startScan();
 }
 
 void updateWifi() {
-  if (autoConnect == AutoConnect::scanning) {
+  if (autoConnect == AutoConnect::waitingToScan) {
+    if (millis() - scanRetryFrom < scanRetryDelayMs) return;
+    if (scanAttempts < maxScanAttempts) {
+      startScan();
+    } else {
+      retryOrGiveUp(WIFI_SCAN_FAILED);
+    }
+  } else if (autoConnect == AutoConnect::scanning) {
+    if (backgroundScanRunning()) return;
     int16_t found = WiFi.scanComplete();
-    if (found == WIFI_SCAN_RUNNING) return;
     String ssid;
     String password;
     if (found > 0 && pickKnownNetwork(found, ssid, password)) {
       Serial.printf("Wi-Fi: joining %s\n", ssid.c_str());
       startConnecting(ssid, password);
       autoConnect = AutoConnect::joining;
+    } else if (found <= 0) {
+      retryOrGiveUp(found);
     } else {
-      Serial.println("Wi-Fi: no known network in range");
+      Serial.printf("Wi-Fi: no known network among %d in range\n", found);
       autoConnect = AutoConnect::failed;
     }
     WiFi.scanDelete();
@@ -96,7 +146,8 @@ bool wifiConnected() {
 // idle with a target means the driver is reconnecting after a drop
 bool wifiConnecting() {
   if (wifiConnected()) return false;
-  return autoConnect == AutoConnect::scanning || autoConnect == AutoConnect::joining ||
+  return autoConnect == AutoConnect::waitingToScan || autoConnect == AutoConnect::scanning ||
+         autoConnect == AutoConnect::joining ||
          (autoConnect == AutoConnect::idle && !targetSsid.isEmpty());
 }
 
@@ -104,19 +155,11 @@ String wifiStatusText() {
   if (wifiConnected()) {
     return "Wi-Fi: " + targetSsid + "  " + WiFi.localIP().toString();
   }
-  if (autoConnect == AutoConnect::scanning) return "Wi-Fi: Looking for known networks";
+  if (autoConnect == AutoConnect::waitingToScan || autoConnect == AutoConnect::scanning) {
+    return "Wi-Fi: Looking for known networks";
+  }
   if (wifiConnecting()) return "Wi-Fi: Connecting to " + targetSsid;
   return "Wi-Fi: Not connected - tap to choose";
-}
-
-bool waitForWifi(unsigned long timeoutMs) {
-  if (wifiConnected()) return true;
-  if (targetSsid.isEmpty()) return false;
-  Serial.println("Wi-Fi dropped; reconnecting");
-  WiFi.reconnect();
-  unsigned long startedAt = millis();
-  while (!wifiConnected() && millis() - startedAt < timeoutMs) delay(250);
-  return wifiConnected();
 }
 
 bool autoConnectFailed() {
@@ -124,7 +167,7 @@ bool autoConnectFailed() {
 }
 
 void prepareWifiScan() {
-  while (WiFi.scanComplete() == WIFI_SCAN_RUNNING) delay(50);
+  while (backgroundScanRunning()) delay(50);
   if (autoConnect == AutoConnect::scanning) WiFi.scanDelete();
   if (!wifiConnected()) stopAttempt();
 }
@@ -152,4 +195,15 @@ bool joinNetwork(const String &ssid, const String &password, unsigned long timeo
   }
   if (ssid != WIFI_SSID) saveNetwork(ssid, password);
   return true;
+}
+
+bool canForgetNetwork(const String &ssid) {
+  String password;
+  return ssid != WIFI_SSID && findSavedNetwork(ssid, password);
+}
+
+void forgetWifiNetwork(const String &ssid) {
+  forgetNetwork(ssid);
+  if (targetSsid == ssid) stopAttempt();
+  Serial.printf("Wi-Fi: forgot %s\n", ssid.c_str());
 }

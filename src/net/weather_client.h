@@ -11,5 +11,9 @@ struct WeatherData {
   int weatherCode = 0;
 };
 
-WeatherData fetchWeather();  // blocks for up to ~40 s on a bad connection
+// The download runs in a background task so the screen stays usable on a network with
+// no internet. startWeatherFetch() does nothing while a fetch is already running.
+void startWeatherFetch();
+bool weatherFetchRunning();
+WeatherData latestWeather();  // last finished fetch; only read it while no fetch is running
 const char *weatherDescription(int code);

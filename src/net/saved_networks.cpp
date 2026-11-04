@@ -17,6 +17,13 @@ void writeSavedNetworks() {
     storage.putString(("ssid" + String(i)).c_str(), ssids[i]);
     storage.putString(("pass" + String(i)).c_str(), passwords[i]);
   }
+  // Erase slots freed by forgetNetwork() so a forgotten password does not stay in flash
+  for (uint8_t i = count; i < maxSavedNetworks; ++i) {
+    String ssidKey = "ssid" + String(i);
+    String passwordKey = "pass" + String(i);
+    if (storage.isKey(ssidKey.c_str())) storage.remove(ssidKey.c_str());
+    if (storage.isKey(passwordKey.c_str())) storage.remove(passwordKey.c_str());
+  }
   storage.end();
 }
 }  // namespace
@@ -62,5 +69,17 @@ void saveNetwork(const String &ssid, const String &password) {
   }
   ssids[0] = ssid;
   passwords[0] = password;
+  writeSavedNetworks();
+}
+
+void forgetNetwork(const String &ssid) {
+  uint8_t index = 0;
+  while (index < count && ssids[index] != ssid) ++index;
+  if (index == count) return;
+  for (uint8_t i = index; i + 1 < count; ++i) {
+    ssids[i] = ssids[i + 1];
+    passwords[i] = passwords[i + 1];
+  }
+  --count;
   writeSavedNetworks();
 }

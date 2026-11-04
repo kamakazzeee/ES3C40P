@@ -12,9 +12,12 @@ Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, 
 - `src/hardware/`: one file pair per part (board, touch, battery, env_sensor, audio, sd_storage).
   Plain functions, with private state in an unnamed namespace in the `.cpp`.
 - Audio runs in its own FreeRTOS task on core 0 (loop() and all drawing are on core 1): callers
-  queue a job (`startRecording`, `startPlayback`, `playStartupChime`), poll `audioBusy()`, and
+  queue a job (`startRecording`, `startPlayback`, `playStartupChime`, `playKeyClick`), poll `audioBusy()`, and
   call `stopAudio()` before freeing a buffer the task is using. Never draw from the audio task.
-- `src/net/`: `wifi_connection`, `saved_networks` and `weather_client` (fetches data, never draws).
+- `src/net/`: `wifi_connection`, `saved_networks` and `weather_client` (fetches data, never draws;
+  the download runs in its own task on core 0 so the weather screen can time out after 20 s).
+- `WiFiClientSecure::setTimeout()` takes seconds, not ms (HTTPClient's takes ms); the TLS
+  handshake defaults to 120 s, so set `setHandshakeTimeout()` too.
 - Wi-Fi: at boot a background scan (finished by `updateWifi()` in `loop()`) joins the home network
   from `wifi_secrets.h` if in range, else the most recent saved one. If none works, the menu opens
   `wifiScreen` once; tapping the Wi-Fi status in the menu's bottom bar opens it any time. Networks
@@ -62,6 +65,13 @@ Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, 
 | UART header | TX 43, RX 44 |
 
 ## Things learned the hard way
+
+- An async `WiFi.scanNetworks(true)` is reported as `WIFI_SCAN_FAILED` by `scanComplete()` once
+  20 x max_ms_per_chan (6 s) pass, but a full scan here takes ~6.6 s and does finish.
+  `backgroundScanRunning()` waits up to 15 s instead; starting another scan over the still-running
+  one returns 0 networks. Blocking scans wait 10 s and are fine.
+- `WiFi.persistent(false)` must be called before `WiFi.mode()`, or every `WiFi.begin()` is also
+  written to the radio's own flash config.
 
 - Raw touch Y is screen X and raw touch X is (319 - screen Y) in rotation 1; `readTap()` does the
   conversion. It was once mirrored, which full-width buttons hid.
