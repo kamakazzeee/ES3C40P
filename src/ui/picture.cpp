@@ -6,7 +6,8 @@
 namespace {
 constexpr char cacheFolder[] = "/.thumbs";
 constexpr uint32_t cacheMagic = 0x31424854;  // "THB1"
-constexpr uint16_t cacheRowsPerRead = 4;
+constexpr uint16_t cacheRowsPerRead = 8;
+constexpr uint32_t dmaBufferPixels = 480 * cacheRowsPerRead;
 
 // Saved copies start with this; a copy is only used if the source file's size and date match
 struct CacheHeader {
@@ -26,6 +27,39 @@ bool passedClipBottom = false;
 bool stoppedByCaller = false;
 PictureStopCheck stopCheck;
 
+// Two buffers in internal RAM: pixels are copied into one while the other is still being
+// sent by DMA, so decoding or reading the SD card overlaps with the transfer to the screen
+uint16_t *dmaBuffers[2] = {nullptr, nullptr};
+uint8_t nextDmaBuffer = 0;
+
+// Holds the SPI bus for the whole picture, which also saves a transaction per JPEG block
+void beginScreenTransfer() {
+  for (uint16_t *&buffer : dmaBuffers) {
+    buffer = static_cast<uint16_t *>(heap_caps_malloc(dmaBufferPixels * sizeof(uint16_t), MALLOC_CAP_DMA));
+  }
+  display.startWrite();
+}
+
+void endScreenTransfer() {
+  display.dmaWait();
+  display.endWrite();
+  for (uint16_t *&buffer : dmaBuffers) {
+    free(buffer);
+    buffer = nullptr;
+  }
+}
+
+// Queues the pixels by DMA and returns at once; blocks only if the buffers couldn't be allocated
+void pushToScreen(int16_t x, int16_t y, uint16_t width, uint16_t height, uint16_t *pixels) {
+  if (!dmaBuffers[0] || !dmaBuffers[1] || uint32_t(width) * height > dmaBufferPixels) {
+    display.dmaWait();
+    display.pushImage(x, y, width, height, pixels);
+    return;
+  }
+  display.pushImageDMA(x, y, width, height, pixels, dmaBuffers[nextDmaBuffer]);
+  nextDmaBuffer ^= 1;
+}
+
 bool onBlock(int16_t x, int16_t y, uint16_t width, uint16_t height, uint16_t *bitmap) {
   if (stopCheck && stopCheck()) {
     stoppedByCaller = true;
@@ -43,6 +77,8 @@ bool onBlock(int16_t x, int16_t y, uint16_t width, uint16_t height, uint16_t *bi
     passedClipBottom = true;
     return false;
   }
+  // Not DMA: a JPEG block is only 16x16 pixels, and queuing a DMA transfer for each costs more
+  // than sending it directly (measured 10-20% slower)
   display.pushImage(x, y, width, height, bitmap);
   return true;
 }
@@ -85,7 +121,7 @@ bool drawCachedCopy(const String &cachePath, const CacheHeader &expected, const 
     uint16_t count = min<uint16_t>(cacheRowsPerRead, header.height - row);
     size_t bytes = header.width * count * sizeof(uint16_t);
     if (file.read(reinterpret_cast<uint8_t *>(rows), bytes) != bytes) break;
-    display.pushImage(left, top + row, header.width, count, rows);
+    pushToScreen(left, top + row, header.width, count, rows);
   }
   free(rows);
   file.close();
@@ -173,8 +209,12 @@ bool drawResized(const String &path, uint16_t imageWidth, uint16_t imageHeight, 
   } else {
     shrink(decoded, bufferWidth, decodedWidth, decodedHeight, resized, targetWidth, targetHeight);
     display.fillRect(box.left, box.top, box.width, box.height, TFT_BLACK);
-    display.pushImage(box.left + (box.width - targetWidth) / 2, box.top + (box.height - targetHeight) / 2,
-                      targetWidth, targetHeight, resized);
+    int16_t left = box.left + (box.width - targetWidth) / 2;
+    int16_t top = box.top + (box.height - targetHeight) / 2;
+    for (int16_t row = 0; row < targetHeight; row += cacheRowsPerRead) {
+      uint16_t count = min<int16_t>(cacheRowsPerRead, targetHeight - row);
+      pushToScreen(left, top + row, targetWidth, count, resized + row * targetWidth);
+    }
     CacheHeader header = sourceInfo;
     header.width = targetWidth;
     header.height = targetHeight;
@@ -230,6 +270,7 @@ PictureResult drawPicture(const String &path, const Button &box, PictureStopChec
   stoppedByCaller = false;
   TJpgDec.setCallback(onBlock);
   display.setSwapBytes(true);  // decoded and saved pixels are little-endian RGB565
+  beginScreenTransfer();
   PictureResult result = PictureResult::shown;
   bool fits = imageWidth <= box.width && imageHeight <= box.height;
   if (fits) {
@@ -238,6 +279,7 @@ PictureResult drawPicture(const String &path, const Button &box, PictureStopChec
              !drawResized(path, imageWidth, imageHeight, box, sourceInfo, result)) {
     result = drawDirect(path, imageWidth, imageHeight, box);
   }
+  endScreenTransfer();
   display.setSwapBytes(false);
   stopCheck = nullptr;
   return result;

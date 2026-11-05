@@ -90,6 +90,11 @@ Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, 
   smooth font replaces built-in font numbers, so always unload before using `drawString(..., font)`.
   Smooth text blends against a known background colour (currently always black).
 - Smooth fonts cost ~7-14 ms per line; a full-screen fill is ~34 ms at 80 MHz SPI.
+- Display DMA (`initDMA()` in `beginDisplay()`, `pushImageDMA()` in `picture.cpp`) crashed on the
+  first transfer in TFT_eSPI 2.5.43 (its S3 DMA callback writes to address 0x30);
+  `scripts/patch_tft_setup.py` patches that line before every build. DMA only pays off for strips
+  of whole rows (cached thumbnails 16% faster); per-16x16 JPEG block it was 10-20% slower. Wrap
+  DMA in `startWrite()`/`endWrite()` and `dmaWait()` before any ordinary drawing.
 - The sensor on this unit is a BMP280 (no humidity), not a BME280.
 
 ## Conventions

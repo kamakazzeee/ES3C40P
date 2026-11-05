@@ -11,6 +11,7 @@ String displayedBatteryStatus;
 void beginDisplay() {
   display.init();
   display.setRotation(1);
+  display.initDMA();  // used by pushImageDMA() in picture.cpp; ordinary drawing is unaffected
 }
 
 void drawHeader(const char *title) {
