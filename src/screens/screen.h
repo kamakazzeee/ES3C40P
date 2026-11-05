@@ -9,6 +9,9 @@ class Screen {
   virtual void enter() {}  // once, when the screen opens: scan, fetch, load
   virtual void draw() = 0;  // paint the whole screen
   virtual void onTap(uint16_t x, uint16_t y) = 0;
+  // A screen that uses swipes gets its taps when the finger lifts, so a swipe is never also a tap
+  virtual bool usesSwipes() const { return false; }
+  virtual void onSwipe(int8_t direction) {}  // -1: finger moved left, 1: moved right
   virtual void update() {}  // every loop(): slideshows, live readouts
   virtual void leave() {}  // tidy up before another screen opens
 };

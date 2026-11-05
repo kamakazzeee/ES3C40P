@@ -5,3 +5,4 @@
 void showScreen(Screen &screen);  // leave the old screen, then enter and draw the new one
 void showMenu();
 Screen &currentScreen();
+void handleTouch();  // called from loop(): turns touches into taps and swipes for the current screen

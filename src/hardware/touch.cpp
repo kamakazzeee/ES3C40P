@@ -10,6 +10,8 @@ constexpr unsigned long touchReleaseMs = 40;  // touch controller pulses every ~
 volatile bool touchDataReady = false;
 unsigned long lastTouchPulseAt = 0;
 bool lastTouch = false;
+uint16_t lastScreenX = 0;
+uint16_t lastScreenY = 0;
 
 // Runs on each falling edge of the touch INT pin, which pulses about every 10 ms while
 // the screen is touched and stays quiet otherwise. Interrupt handlers must be short, so
@@ -49,7 +51,7 @@ void beginTouch() {
   attachInterrupt(digitalPinToInterrupt(touchInterruptPin), onTouchInterrupt, FALLING);
 }
 
-bool readTap(uint16_t &x, uint16_t &y) {
+TouchEvent readTouchEvent(uint16_t &x, uint16_t &y) {
   // Only talk to the touch controller after it signals new data; when the pulses stop, the finger has lifted
   uint16_t touchX = 0;
   uint16_t touchY = 0;
@@ -58,17 +60,28 @@ bool readTap(uint16_t &x, uint16_t &y) {
     touchDataReady = false;
     lastTouchPulseAt = millis();
     touched = readTouchPoint(touchX, touchY);
+    if (touched) {
+      // Touch Y runs left to right across the rotated screen; X runs bottom to top
+      lastScreenX = touchY > 479 ? 479 : touchY;
+      lastScreenY = 319 - (touchX > 319 ? 319 : touchX);
+    }
   } else if (lastTouch && millis() - lastTouchPulseAt > touchReleaseMs) {
     touched = false;
   }
 
-  bool newTap = touched && !lastTouch;
+  TouchEvent event = TouchEvent::none;
+  if (touched && !lastTouch) {
+    event = TouchEvent::press;
+    Serial.printf("Touch raw: x=%u y=%u, screen: x=%u y=%u\n", touchX, touchY, lastScreenX, lastScreenY);
+  } else if (!touched && lastTouch) {
+    event = TouchEvent::release;
+  }
   lastTouch = touched;
-  if (!newTap) return false;
+  x = lastScreenX;
+  y = lastScreenY;
+  return event;
+}
 
-  // Touch Y runs left to right across the rotated screen; X runs bottom to top
-  x = touchY > 479 ? 479 : touchY;
-  y = 319 - (touchX > 319 ? 319 : touchX);
-  Serial.printf("Touch raw: x=%u y=%u, screen: x=%u y=%u\n", touchX, touchY, x, y);
-  return true;
+bool readTap(uint16_t &x, uint16_t &y) {
+  return readTouchEvent(x, y) == TouchEvent::press;
 }

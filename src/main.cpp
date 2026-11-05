@@ -42,9 +42,7 @@ void setup() {
 void loop() {
   if (bootButtonPressed()) setBacklight(!backlightOn());
 
-  uint16_t x;
-  uint16_t y;
-  if (readTap(x, y)) currentScreen().onTap(x, y);
+  handleTouch();
   updateWifi();
   currentScreen().update();
 

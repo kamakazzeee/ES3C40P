@@ -1,13 +1,15 @@
 # ES3C40P touchscreen hub
 
 PlatformIO + Arduino firmware for the LCDWIKI ES3C40P: 4.0" 480x320 IPS (ST7796S) with capacitive
-touch, ESP32-S3 (16 MB flash, 8 MB OPI PSRAM). A touch menu with Weather (Open-Meteo), SD Image Viewer,
-Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, and 5-minute sensor logging to
+touch, ESP32-S3 (16 MB flash, 8 MB OPI PSRAM). A tile menu (3 x 2 per page, swipe between pages)
+with Weather (Open-Meteo), SD Image Viewer, Wi-Fi Scanner, Environment Sensor, Microphone Test and
+Wi-Fi screens, a startup chime, and 5-minute sensor logging to
 `/sensor_log.csv` on the SD card.
 
 ## Code layout
 
-- `src/main.cpp`: `setup()` starts the hardware; `loop()` passes taps to the current screen.
+- `src/main.cpp`: `setup()` starts the hardware; `loop()` calls `handleTouch()` (in `app.cpp`),
+  which passes taps and swipes to the current screen.
 - `include/pins.h`: every pin and I2C address.
 - `src/hardware/`: one file pair per part (board, touch, battery, env_sensor, audio, sd_storage).
   Plain functions, with private state in an unnamed namespace in the `.cpp`.
@@ -25,13 +27,16 @@ Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, 
 - `keyboardScreen.open(title, text, masked, maxLength, onDone)` is a reusable on-screen keyboard;
   `onDone(accepted, text)` must show the next screen.
 - `src/ui/ui.*`: the shared `display` object, `drawHeader()`, `Button`, `drawButton()`,
-  `drawSmoothCentre()`.
+  `drawSmoothCentre()`. `src/ui/icons.*`: menu icons drawn from shapes onto the screen or a sprite.
 - `src/ui/picture.*`: `drawPicture()` fits a JPEG from the SD card into a box. Pictures bigger
   than the box are decoded at 1/2-1/8 into PSRAM, box-filtered down, and saved as raw RGB565 to
   `/.thumbs/<name>.bin` (header holds the source size and date, so a replaced file is redone).
 - `src/screens/`: `Screen` base class (`enter`, `draw`, `onTap`, `update`, `leave`) and one class
   per menu option, each with a global instance (`weatherScreen`, ...). `src/app.*` switches screens.
-- New menu option: add a screen class, then one line in `menuItems` in `menu_screen.cpp`.
+- New menu option: add a screen class, then one line in `menuItems` in `menu_screen.cpp` (label,
+  icon, colours, screen); every six items add a page, with dots, swiped by sliding a PSRAM sprite.
+- Taps normally fire when the finger lands. A screen whose `usesSwipes()` returns true gets them on
+  release instead (moved under 20 px), plus `onSwipe(-1/1)` for a mostly sideways move of 60+ px.
 - Use one `Button` for both drawing and tap testing so they can't drift apart.
 - GitHub Actions (`.github/workflows/build.yml`) compiles every push with the example secrets.
 
