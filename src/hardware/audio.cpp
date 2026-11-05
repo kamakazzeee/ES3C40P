@@ -277,7 +277,8 @@ bool beginAudio() {
   audioAvailable = initializeAudio();
   if (!audioAvailable) return false;
   commandQueue = xQueueCreate(1, sizeof(AudioCommand));
-  xTaskCreatePinnedToCore(audioTask, "audio", 4096, nullptr, 2, nullptr, audioCore);
+  // 4 KB overflowed now and then (104 bytes was the least ever left free); 8 KB leaves ~4.2 KB
+  xTaskCreatePinnedToCore(audioTask, "audio", 8192, nullptr, 2, nullptr, audioCore);
   return true;
 }
 
