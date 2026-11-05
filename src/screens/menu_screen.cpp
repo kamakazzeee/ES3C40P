@@ -3,6 +3,8 @@
 #include "app.h"
 #include "hardware/env_sensor.h"
 #include "net/wifi_connection.h"
+#include "screens/battery_graph_screen.h"
+#include "screens/battery_test_screen.h"
 #include "screens/image_screen.h"
 #include "screens/mic_screen.h"
 #include "screens/scanner_screen.h"
@@ -38,6 +40,8 @@ const MenuItem menuItems[] = {
     {"SENSOR", drawThermometerIcon, darkOrange, TFT_ORANGE, &sensorScreen},
     {"MICROPHONE", drawMicrophoneIcon, TFT_MAROON, TFT_RED, &micScreen},
     {"WI-FI", drawWifiIcon, TFT_NAVY, TFT_SKYBLUE, &wifiScreen},
+    {"BATTERY TEST", drawBatteryTestIcon, TFT_OLIVE, TFT_GREENYELLOW, &batteryTestScreen},
+    {"BATTERY CURVES", drawGraphIcon, TFT_PURPLE, TFT_MAGENTA, &batteryGraphScreen},
 };
 constexpr uint8_t itemCount = sizeof(menuItems) / sizeof(menuItems[0]);
 constexpr uint8_t pageCount = (itemCount + tilesPerPage - 1) / tilesPerPage;

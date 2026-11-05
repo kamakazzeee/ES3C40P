@@ -51,6 +51,24 @@ void drawMicrophoneIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t backgro
   canvas.fillRect(x - 8, y + 14, 17, 3, TFT_WHITE);
 }
 
+// A battery on its side, half full, with a falling arrow
+void drawBatteryTestIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background) {
+  canvas.fillRoundRect(x - 20, y - 11, 36, 22, 3, TFT_WHITE);
+  canvas.fillRect(x - 17, y - 8, 30, 16, background);
+  canvas.fillRect(x + 16, y - 5, 4, 10, TFT_WHITE);
+  canvas.fillRect(x - 15, y - 6, 13, 12, TFT_GREENYELLOW);
+  canvas.fillTriangle(x + 3, y - 4, x + 11, y - 4, x + 7, y + 6, TFT_WHITE);
+}
+
+// Axes with a discharge-shaped curve: steep, flat, then steep again
+void drawGraphIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background) {
+  canvas.fillRect(x - 20, y - 16, 2, 32, TFT_WHITE);
+  canvas.fillRect(x - 20, y + 14, 40, 2, TFT_WHITE);
+  canvas.drawWideLine(x - 16, y - 13, x - 10, y - 5, 2, TFT_YELLOW, background);
+  canvas.drawWideLine(x - 10, y - 5, x + 8, y - 1, 2, TFT_YELLOW, background);
+  canvas.drawWideLine(x + 8, y - 1, x + 16, y + 10, 2, TFT_YELLOW, background);
+}
+
 void drawWifiIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background) {
   canvas.drawArc(x, y + 14, 30, 25, 135, 225, TFT_WHITE, background);
   canvas.drawArc(x, y + 14, 20, 15, 135, 225, TFT_WHITE, background);

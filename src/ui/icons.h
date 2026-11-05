@@ -11,3 +11,5 @@ void drawSignalIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background)
 void drawThermometerIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background);
 void drawMicrophoneIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background);
 void drawWifiIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background);
+void drawBatteryTestIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background);
+void drawGraphIcon(TFT_eSPI &canvas, int16_t x, int16_t y, uint16_t background);

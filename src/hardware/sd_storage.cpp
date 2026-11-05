@@ -59,12 +59,13 @@ void logSensorData() {
   }
 
   bool valid = envSensor.readingValid;
+  bool battery = batteryConnected();  // without one the pin reads the charger, so leave these blank
   float voltage = batteryVoltage();
   logFile.print(millis() / 1000);
   logFile.print(",");
-  logFile.print(voltage, 3);
+  if (battery) logFile.print(voltage, 3);
   logFile.print(",");
-  logFile.print(batteryPercent(voltage));
+  if (battery) logFile.print(batteryPercent(voltage));
   logFile.print(",");
   if (valid) logFile.print(envSensor.temperature, 2);
   logFile.print(",");

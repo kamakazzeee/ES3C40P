@@ -1,6 +1,7 @@
 #include "ui/ui.h"
 
 #include "hardware/battery.h"
+#include "hardware/board.h"
 #include "hardware/sd_storage.h"
 #include "net/wifi_connection.h"
 
@@ -13,6 +14,7 @@ struct Status {
   uint8_t wifiBars;
   bool wifiConnecting;
   bool sdReady;
+  bool batteryFitted;
   uint8_t batteryPercent;
 };
 
@@ -21,12 +23,13 @@ Status shownStatus = {};
 unsigned long lastStatusCheckAt = 0;
 
 Status readStatus() {
-  return {wifiSignalBars(), wifiConnecting(), sdCardReady(), batteryPercent(batteryVoltage())};
+  bool fitted = batteryConnected();
+  return {wifiSignalBars(), wifiConnecting(), sdCardReady(), fitted, fitted ? batteryPercent(smoothedBatteryVoltage()) : uint8_t(0)};
 }
 
 bool sameStatus(const Status &a, const Status &b) {
   return a.wifiBars == b.wifiBars && a.wifiConnecting == b.wifiConnecting && a.sdReady == b.sdReady &&
-         a.batteryPercent == b.batteryPercent;
+         a.batteryFitted == b.batteryFitted && a.batteryPercent == b.batteryPercent;
 }
 
 // White bars up to the signal strength; orange while connecting; grey with a red cross when offline
@@ -67,11 +70,25 @@ void drawBatteryIcon(int16_t left, int16_t top, uint8_t percent) {
   display.drawRightString(String(percent) + "%", 462, 15, 2);
 }
 
+// Shown instead of the battery when none is plugged in: a mains plug and "USB"
+void drawPlugIcon(int16_t left, int16_t top) {
+  display.fillRect(left + 1, top + 2, 6, 2, TFT_LIGHTGREY);
+  display.fillRect(left + 1, top + 9, 6, 2, TFT_LIGHTGREY);
+  display.fillRoundRect(left + 7, top, 10, 13, 3, TFT_LIGHTGREY);
+  display.fillRect(left + 17, top + 5, 8, 3, TFT_LIGHTGREY);
+  display.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+  display.drawRightString("USB", 462, 15, 2);
+}
+
 void drawStatusIcons(const Status &status) {
   display.fillRect(340, 8, 124, 28, TFT_BLACK);
   drawWifiMeter(352, 31, status);
   drawSdIcon(380, 13, status.sdReady);
-  drawBatteryIcon(400, 16, status.batteryPercent);
+  if (status.batteryFitted) {
+    drawBatteryIcon(400, 16, status.batteryPercent);
+  } else {
+    drawPlugIcon(400, 16);
+  }
   shownStatus = status;
 }
 }  // namespace
@@ -102,7 +119,8 @@ void markHeaderHidden() {
 }
 
 void updateStatusIcons() {
-  if (!headerShown || millis() - lastStatusCheckAt < statusCheckIntervalMs) return;
+  // Not while the backlight is off: nobody can see it, and the battery reads high with that load gone
+  if (!headerShown || !backlightOn() || millis() - lastStatusCheckAt < statusCheckIntervalMs) return;
   lastStatusCheckAt = millis();
   Status status = readStatus();
   if (!sameStatus(status, shownStatus)) drawStatusIcons(status);

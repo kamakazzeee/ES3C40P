@@ -2,8 +2,8 @@
 
 PlatformIO + Arduino firmware for the LCDWIKI ES3C40P: 4.0" 480x320 IPS (ST7796S) with capacitive
 touch, ESP32-S3 (16 MB flash, 8 MB OPI PSRAM). A tile menu (3 x 2 per page, swipe between pages)
-with Weather (Open-Meteo), SD Image Viewer, Wi-Fi Scanner, Environment Sensor, Microphone Test and
-Wi-Fi screens, a startup chime, and 5-minute sensor logging to
+with Weather (Open-Meteo), SD Image Viewer, Wi-Fi Scanner, Environment Sensor, Microphone Test,
+Wi-Fi, Battery Test and Battery Curves screens, a startup chime, and 5-minute sensor logging to
 `/sensor_log.csv` on the SD card.
 
 ## Code layout
@@ -106,6 +106,14 @@ Wi-Fi screens, a startup chime, and 5-minute sensor logging to
   of whole rows (cached thumbnails 16% faster); per-16x16 JPEG block it was 10-20% slower. Wrap
   DMA in `startWrite()`/`endWrite()` and `dmaWait()` before any ordinary drawing.
 - The sensor on this unit is a BMP280 (no humidity), not a BME280.
+- Battery (TP4054 charger; its status pin isn't wired to a GPIO): with no battery the pin reads
+  ~4.13 V, same as a full cell, but in a ~25 ms sawtooth (readings 1 ms apart correlate 0.75; with
+  a battery 0.00-0.04). `batteryConnected()` tests that every 10 s (64 ms of samples) and needs two
+  agreeing checks to change. The voltage rises when the load drops (backlight off), so the header
+  uses `smoothedBatteryVoltage()` (1-minute average) and skips readings while the backlight is off.
+- `batteryPercent()` uses a generic LiPo table until one measured on this board replaces it.
+  Battery Test logs every 10 s to `/battery/run_<n>.csv` (cell number in the first line, `# stopped`
+  at the end if STOP was used; up to 10 runs, oldest deleted); only runs that ran flat give a curve.
 
 ## Conventions
 
