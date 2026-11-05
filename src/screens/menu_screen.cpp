@@ -2,7 +2,6 @@
 
 #include "app.h"
 #include "hardware/env_sensor.h"
-#include "hardware/sd_storage.h"
 #include "net/wifi_connection.h"
 #include "screens/image_screen.h"
 #include "screens/mic_screen.h"
@@ -16,11 +15,10 @@
 MenuScreen menuScreen;
 
 namespace {
-constexpr unsigned long statusIntervalMs = 1000;
-constexpr Button wifiStatusTapArea = {0, 272, 320, 48};  // left of the SD card status
-constexpr Button tileArea = {0, 84, 480, 178};           // between the header line and the page dots
+constexpr unsigned long temperatureIntervalMs = 1000;
+constexpr Button tileArea = {0, 50, 480, 256};  // between the header line and the page dots
 constexpr uint8_t tilesPerPage = 6;
-constexpr int16_t pageDotsY = 267;
+constexpr int16_t pageDotsY = 311;
 constexpr uint8_t slideFrames = 8;
 constexpr uint16_t darkOrange = 0x7A80;
 
@@ -46,7 +44,7 @@ constexpr uint8_t pageCount = (itemCount + tilesPerPage - 1) / tilesPerPage;
 
 // Where a slot on the page sits on screen; used for both drawing and tap tests
 Button tileButton(uint8_t slot) {
-  return {int16_t(18 + (slot % 3) * 152), int16_t(86 + (slot / 3) * 90), 140, 82};
+  return {int16_t(18 + (slot % 3) * 152), int16_t(56 + (slot / 3) * 128), 140, 118};
 }
 
 // Draws one page of tiles, shifted by (offsetX, offsetY) so it can go onto a sprite as well as the screen
@@ -61,19 +59,18 @@ void drawTiles(TFT_eSPI &canvas, uint8_t page, int16_t offsetX, int16_t offsetY)
     int16_t centreX = left + tile.width / 2;
     canvas.fillSmoothRoundRect(left, top, tile.width, tile.height, 8, item.border, TFT_BLACK);
     canvas.fillSmoothRoundRect(left + 2, top + 2, tile.width - 4, tile.height - 4, 6, item.fill, item.border);
-    item.drawIcon(canvas, centreX, top + 30, item.fill);
+    item.drawIcon(canvas, centreX, top + 46, item.fill);
     canvas.setTextColor(TFT_WHITE, item.fill);
-    canvas.drawCentreString(item.label, centreX, top + 58, 2);
+    canvas.drawCentreString(item.label, centreX, top + 86, 2);
   }
 }
 }  // namespace
 
 void MenuScreen::draw() {
-  drawHeader("HOME");
+  drawHeader(nullptr);
   drawTemperatureStatus();
   drawTiles(display, page, 0, 0);
   drawPageDots();
-  drawStatusBar();
 }
 
 void MenuScreen::onTap(uint16_t x, uint16_t y) {
@@ -84,7 +81,6 @@ void MenuScreen::onTap(uint16_t x, uint16_t y) {
       return;
     }
   }
-  if (wifiStatusTapArea.contains(x, y)) showScreen(wifiScreen);
 }
 
 // Swiping left shows the next page and swiping right the previous one; both wrap around
@@ -95,7 +91,7 @@ void MenuScreen::onSwipe(int8_t direction) {
 }
 
 // Both pages go side by side into one sprite in PSRAM (960 wide), which is pushed a little
-// further across each frame, so the tiles move without being redrawn or flickering (~23 ms a frame)
+// further across each frame, so the tiles move without being redrawn or flickering (~33 ms a frame)
 void MenuScreen::slideToPage(uint8_t newPage, int8_t direction) {
   TFT_eSprite strip(&display);
   strip.setColorDepth(16);
@@ -130,12 +126,10 @@ void MenuScreen::drawPageDots() {
 }
 
 void MenuScreen::update() {
-  if (millis() - lastStatusDrawAt < statusIntervalMs) return;
-  lastStatusDrawAt = millis();
+  if (millis() - lastTemperatureDrawAt < temperatureIntervalMs) return;
+  lastTemperatureDrawAt = millis();
   updateEnvSensor();
   drawTemperatureStatus();
-  drawBatteryStatus(true);
-  if (wifiStatusText() != displayedWifiStatus) drawStatusBar();
   if (!offeredWifiScreen && autoConnectFailed()) {
     offeredWifiScreen = true;
     showScreen(wifiScreen);
@@ -150,30 +144,4 @@ void MenuScreen::drawTemperatureStatus() {
   } else {
     display.drawCentreString("Temp: -- F", 222, 18, 2);
   }
-}
-
-// Wi-Fi status on the left, SD card status on the right; the Wi-Fi text is cut short to fit
-void MenuScreen::drawStatusBar() {
-  String fullWifiStatus = wifiStatusText();
-  String wifiStatus = fullWifiStatus;
-  String sdStatus = sdCardReady() ? "SD card ready" : "No SD card detected";
-  int16_t sdLeft = 460 - display.textWidth(sdStatus, 2);
-  int16_t maximumWifiWidth = sdLeft - 18 - 12;
-  while (wifiStatus.length() > 3 && display.textWidth(wifiStatus + "...", 2) > maximumWifiWidth) {
-    wifiStatus.remove(wifiStatus.length() - 1);
-  }
-  if (wifiStatus != fullWifiStatus) wifiStatus += "...";
-
-  display.fillRect(18, 274, 444, 30, TFT_BLACK);
-  if (wifiConnected()) {
-    display.setTextColor(TFT_GREEN, TFT_BLACK);
-  } else if (wifiConnecting()) {
-    display.setTextColor(TFT_ORANGE, TFT_BLACK);
-  } else {
-    display.setTextColor(TFT_RED, TFT_BLACK);
-  }
-  display.drawString(wifiStatus, 18, 282, 2);
-  display.setTextColor(TFT_YELLOW, TFT_BLACK);
-  display.drawRightString(sdStatus, 460, 282, 2);
-  displayedWifiStatus = fullWifiStatus;
 }

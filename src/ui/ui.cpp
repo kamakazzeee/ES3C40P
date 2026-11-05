@@ -1,11 +1,79 @@
 #include "ui/ui.h"
 
 #include "hardware/battery.h"
+#include "hardware/sd_storage.h"
+#include "net/wifi_connection.h"
 
 TFT_eSPI display;
 
 namespace {
-String displayedBatteryStatus;
+constexpr unsigned long statusCheckIntervalMs = 1000;
+
+struct Status {
+  uint8_t wifiBars;
+  bool wifiConnecting;
+  bool sdReady;
+  uint8_t batteryPercent;
+};
+
+bool headerShown = false;  // false while a screen without the header (the keyboard) is up
+Status shownStatus = {};
+unsigned long lastStatusCheckAt = 0;
+
+Status readStatus() {
+  return {wifiSignalBars(), wifiConnecting(), sdCardReady(), batteryPercent(batteryVoltage())};
+}
+
+bool sameStatus(const Status &a, const Status &b) {
+  return a.wifiBars == b.wifiBars && a.wifiConnecting == b.wifiConnecting && a.sdReady == b.sdReady &&
+         a.batteryPercent == b.batteryPercent;
+}
+
+// White bars up to the signal strength; orange while connecting; grey with a red cross when offline
+void drawWifiMeter(int16_t left, int16_t bottom, const Status &status) {
+  for (uint8_t bar = 0; bar < 4; ++bar) {
+    int16_t height = 4 + bar * 4;
+    uint16_t colour = status.wifiConnecting ? TFT_ORANGE : bar < status.wifiBars ? TFT_WHITE : TFT_DARKGREY;
+    display.fillRect(left + bar * 6, bottom - height, 4, height, colour);
+  }
+  if (status.wifiBars == 0 && !status.wifiConnecting) {
+    for (int16_t thick = 0; thick < 2; ++thick) {
+      display.drawLine(left + thick, bottom - 16, left + 6 + thick, bottom - 10, TFT_RED);
+      display.drawLine(left + 6 + thick, bottom - 16, left + thick, bottom - 10, TFT_RED);
+    }
+  }
+}
+
+// A card with a clipped corner and contacts; green when mounted, grey and struck through when not
+void drawSdIcon(int16_t left, int16_t top, bool ready) {
+  display.fillRect(left, top, 14, 18, ready ? TFT_GREEN : TFT_DARKGREY);
+  display.fillTriangle(left + 9, top, left + 14, top, left + 14, top + 5, TFT_BLACK);
+  for (int16_t contact = 0; contact < 3; ++contact) {
+    display.fillRect(left + 2 + contact * 3, top + 2, 2, 4, TFT_BLACK);
+  }
+  if (!ready) {
+    for (int16_t thick = 0; thick < 2; ++thick) {
+      display.drawLine(left - 2 + thick, top + 19, left + 15 + thick, top - 1, TFT_RED);
+    }
+  }
+}
+
+void drawBatteryIcon(int16_t left, int16_t top, uint8_t percent) {
+  uint16_t colour = percent > 50 ? TFT_GREEN : percent > 20 ? TFT_YELLOW : TFT_RED;
+  display.drawRect(left, top, 24, 13, TFT_WHITE);
+  display.fillRect(left + 24, top + 4, 2, 5, TFT_WHITE);
+  display.fillRect(left + 2, top + 2, (20 * percent + 50) / 100, 9, colour);
+  display.setTextColor(TFT_WHITE, TFT_BLACK);
+  display.drawRightString(String(percent) + "%", 462, 15, 2);
+}
+
+void drawStatusIcons(const Status &status) {
+  display.fillRect(340, 8, 124, 28, TFT_BLACK);
+  drawWifiMeter(352, 31, status);
+  drawSdIcon(380, 13, status.sdReady);
+  drawBatteryIcon(400, 16, status.batteryPercent);
+  shownStatus = status;
+}
 }  // namespace
 
 void beginDisplay() {
@@ -19,19 +87,25 @@ void drawHeader(const char *title) {
   display.setTextDatum(TL_DATUM);
   display.setTextColor(TFT_CYAN, TFT_BLACK);
   display.drawString("ES3C40P", 18, 16, 4);
-  drawBatteryStatus();
-  display.setTextColor(TFT_WHITE, TFT_BLACK);
-  display.drawString(title, 18, 52, 2);
-  display.drawFastHLine(18, 78, 444, TFT_DARKGREY);
+  drawStatusIcons(readStatus());
+  lastStatusCheckAt = millis();
+  headerShown = true;
+  if (title) {
+    display.setTextColor(TFT_WHITE, TFT_BLACK);
+    display.drawString(title, 18, 52, 2);
+  }
+  display.drawFastHLine(18, title ? 78 : 46, 444, TFT_DARKGREY);
 }
 
-void drawBatteryStatus(bool onlyIfChanged) {
-  String status = batteryStatusText();
-  if (onlyIfChanged && status == displayedBatteryStatus) return;
-  display.fillRect(322, 10, 140, 24, TFT_BLACK);
-  display.setTextColor(TFT_YELLOW, TFT_BLACK);
-  display.drawRightString(status, 460, 18, 2);
-  displayedBatteryStatus = status;
+void markHeaderHidden() {
+  headerShown = false;
+}
+
+void updateStatusIcons() {
+  if (!headerShown || millis() - lastStatusCheckAt < statusCheckIntervalMs) return;
+  lastStatusCheckAt = millis();
+  Status status = readStatus();
+  if (!sameStatus(status, shownStatus)) drawStatusIcons(status);
 }
 
 void drawButton(const Button &button, const char *label, uint16_t fill, uint16_t border,

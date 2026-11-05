@@ -143,6 +143,15 @@ bool wifiConnected() {
   return WiFi.status() == WL_CONNECTED;
 }
 
+uint8_t wifiSignalBars() {
+  if (!wifiConnected()) return 0;
+  int rssi = WiFi.RSSI();
+  if (rssi >= -55) return 4;
+  if (rssi >= -65) return 3;
+  if (rssi >= -75) return 2;
+  return 1;
+}
+
 // idle with a target means the driver is reconnecting after a drop
 bool wifiConnecting() {
   if (wifiConnected()) return false;

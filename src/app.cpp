@@ -2,6 +2,7 @@
 
 #include "hardware/touch.h"
 #include "screens/menu_screen.h"
+#include "ui/ui.h"
 
 namespace {
 constexpr int16_t swipeMinimumPx = 60;  // sideways distance that counts as a swipe
@@ -17,6 +18,7 @@ uint16_t pressY = 0;
 
 void showScreen(Screen &screen) {
   activeScreen->leave();
+  markHeaderHidden();
   activeScreen = &screen;
   activeScreen->enter();
   activeScreen->draw();

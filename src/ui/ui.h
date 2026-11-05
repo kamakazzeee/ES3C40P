@@ -22,8 +22,12 @@ constexpr Button backButton = {18, 264, 444, 42};
 constexpr Button backButtonTapArea = {0, 252, 480, 68};
 
 void beginDisplay();
-void drawHeader(const char *title);  // clears the screen
-void drawBatteryStatus(bool onlyIfChanged = false);
+// Clears the screen and draws the top row (name, Wi-Fi, SD card and battery icons). A title
+// goes on a second row with the line under it at y 78; without one (the menu) the line is at y 46.
+void drawHeader(const char *title);
+// Called from loop(): redraws the status icons when something changes, while the header is showing
+void updateStatusIcons();
+void markHeaderHidden();  // called on every screen change; drawHeader() shows it again
 void drawButton(const Button &button, const char *label, uint16_t fill, uint16_t border,
                 uint16_t textColor, bool centred = true);
 void drawBackButton();

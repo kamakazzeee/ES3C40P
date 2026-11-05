@@ -23,8 +23,3 @@ uint8_t batteryPercent(float voltage) {
   if (voltage >= maxVoltage) return 100;
   return static_cast<uint8_t>((voltage - minVoltage) / (maxVoltage - minVoltage) * 100.0f);
 }
-
-String batteryStatusText() {
-  float voltage = batteryVoltage();
-  return String(batteryPercent(voltage)) + "% " + String(voltage, 2) + "V";
-}

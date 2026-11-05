@@ -16,18 +16,23 @@ Wi-Fi screens, a startup chime, and 5-minute sensor logging to
 - Audio runs in its own FreeRTOS task on core 0 (loop() and all drawing are on core 1): callers
   queue a job (`startRecording`, `startPlayback`, `playStartupChime`, `playKeyClick`), poll `audioBusy()`, and
   call `stopAudio()` before freeing a buffer the task is using. Never draw from the audio task.
+  Its stack is 8 KB: at 4 KB only 104 bytes were ever left and it overflowed now and then. Check
+  `uxTaskGetStackHighWaterMark()` after adding stack buffers to any task.
 - `src/net/`: `wifi_connection`, `saved_networks` and `weather_client` (fetches data, never draws;
   the download runs in its own task on core 0 so the weather screen can time out after 20 s).
 - `WiFiClientSecure::setTimeout()` takes seconds, not ms (HTTPClient's takes ms); the TLS
   handshake defaults to 120 s, so set `setHandshakeTimeout()` too.
 - Wi-Fi: at boot a background scan (finished by `updateWifi()` in `loop()`) joins the home network
   from `wifi_secrets.h` if in range, else the most recent saved one. If none works, the menu opens
-  `wifiScreen` once; tapping the Wi-Fi status in the menu's bottom bar opens it any time. Networks
+  `wifiScreen` once; the menu's Wi-Fi tile opens it any time. Networks
   joined there are saved to NVS (`Preferences`, namespace `wifi`, up to 5, passwords unencrypted).
 - `keyboardScreen.open(title, text, masked, maxLength, onDone)` is a reusable on-screen keyboard;
   `onDone(accepted, text)` must show the next screen.
 - `src/ui/ui.*`: the shared `display` object, `drawHeader()`, `Button`, `drawButton()`,
   `drawSmoothCentre()`. `src/ui/icons.*`: menu icons drawn from shapes onto the screen or a sprite.
+- `drawHeader(title)` draws the top row on every screen but the keyboard: name, Wi-Fi meter, SD and
+  battery icons (top right, x 340-462), kept current by `updateStatusIcons()` in `loop()` until the
+  next screen change. With a title the line is at y 78; `drawHeader(nullptr)` (the menu) puts it at y 46.
 - `src/ui/picture.*`: `drawPicture()` fits a JPEG from the SD card into a box. Pictures bigger
   than the box are decoded at 1/2-1/8 into PSRAM, box-filtered down, and saved as raw RGB565 to
   `/.thumbs/<name>.bin` (header holds the source size and date, so a replaced file is redone).

@@ -45,6 +45,7 @@ void loop() {
   handleTouch();
   updateWifi();
   currentScreen().update();
+  updateStatusIcons();
 
   logSensorDataIfDue();
 }

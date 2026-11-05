@@ -8,6 +8,7 @@ void updateWifi();  // call from loop(): finishes the background scan and connec
 bool wifiConnected();
 bool wifiConnecting();
 String wifiStatusText();  // e.g. "Wi-Fi: MyNetwork  192.168.1.20"
+uint8_t wifiSignalBars();  // 0 when not connected, else 1-4 from the signal strength
 
 bool autoConnectFailed();  // no known network in range, or it would not connect
 void retryAutoConnect();

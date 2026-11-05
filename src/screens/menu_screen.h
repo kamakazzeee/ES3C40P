@@ -14,10 +14,8 @@ class MenuScreen : public Screen {
   void slideToPage(uint8_t newPage, int8_t direction);
   void drawPageDots();
   void drawTemperatureStatus();
-  void drawStatusBar();
   uint8_t page = 0;
-  unsigned long lastStatusDrawAt = 0;
-  String displayedWifiStatus;
+  unsigned long lastTemperatureDrawAt = 0;
   bool offeredWifiScreen = false;  // opens by itself only once per boot, so BACK sticks
 };
 
