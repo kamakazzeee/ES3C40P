@@ -12,13 +12,31 @@ constexpr unsigned long sensorLogIntervalMs = 300000;
 
 bool sdAvailable = false;
 unsigned long lastSensorLogAt = 0;
+
+bool mountSdCard(bool oneBitMode) {
+  if (SD_MMC.begin("/sdcard", oneBitMode, false, SDMMC_FREQ_HIGHSPEED, 5) && SD_MMC.cardType() != CARD_NONE) {
+    return true;
+  }
+  SD_MMC.end();
+  return false;
+}
 }  // namespace
 
+// 4-bit at 40 MHz reads 5.1 MB/s here (1-bit at 20 MHz: 1.95 MB/s); 1-bit is the fallback for cards that need it.
+// Cards without high-speed support are left at 20 MHz by the driver.
 bool beginSdCard() {
   SD_MMC.setPins(sdClockPin, sdCommandPin, sdData0Pin, sdData1Pin, sdData2Pin, sdData3Pin);
-  sdAvailable = SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 5) &&
-                SD_MMC.cardType() != CARD_NONE;
-  Serial.printf("SD card: %s\n", sdAvailable ? "ready" : "not detected");
+  bool oneBitMode = false;
+  sdAvailable = mountSdCard(oneBitMode);
+  if (!sdAvailable) {
+    oneBitMode = true;
+    sdAvailable = mountSdCard(oneBitMode);
+  }
+  if (sdAvailable) {
+    Serial.printf("SD card: ready (%s mode)\n", oneBitMode ? "1-bit" : "4-bit");
+  } else {
+    Serial.println("SD card: not detected");
+  }
   return sdAvailable;
 }
 

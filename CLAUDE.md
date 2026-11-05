@@ -60,7 +60,7 @@ Wi-Fi Scanner, Environment Sensor and Microphone Test screens, a startup chime, 
 | I2C bus (shared) | 16/15: touch 0x38, ES8311 codec 0x18, BMP280 sensor 0x76 on the I2C header |
 | Audio ES8311 + I2S | MCLK 4, BCLK 5, LRCK 7, data out 8 (to codec DSDIN), data in 6 (from codec ASDOUT) |
 | Speaker amp FM8002E | enable 1, LOW = on |
-| microSD (SDIO 4-bit) | CLK 38, CMD 40, D0 39, D1 41, D2 48, D3 47 |
+| microSD (SDIO 4-bit, 40 MHz; falls back to 1-bit) | CLK 38, CMD 40, D0 39, D1 41, D2 48, D3 47 |
 | WS2812B RGB LED | 42 |
 | Battery ADC | 9 (divider: volts = reading x 2) |
 | BOOT button | 0 |
